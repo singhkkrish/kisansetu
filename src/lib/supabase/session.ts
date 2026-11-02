@@ -44,11 +44,8 @@ export async function updateSession(request: NextRequest): Promise<NextResponse>
     url.search = "";
     return NextResponse.redirect(url);
   }
-  if (user && isPublic) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    url.search = "";
-    return NextResponse.redirect(url);
-  }
+  // A signed-in user on /login is handled by the login page itself. It knows
+  // whether they have a staff profile; redirecting here would loop for accounts
+  // that are signed in but not set up.
   return response;
 }

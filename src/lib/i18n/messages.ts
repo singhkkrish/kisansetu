@@ -57,7 +57,69 @@ export interface Messages {
     showing: string;
     loadError: string;
     reload: string;
+    addFarmer: string;
+    editFarmer: string;
+    backToList: string;
+    farmerId: string;
+    centre: string;
+    allCentres: string;
+    allVillages: string;
+    statusFilter: string;
+    statusActive: string;
+    statusInactive: string;
+    statusAll: string;
+    clearFilters: string;
+    crops: string;
+    bank: string;
+    bankVerified: string;
+    bankUnverified: string;
+    bankNone: string;
+    bankStaffOnly: string;
+    holderName: string;
+    accountNumber: string;
+    accountKeepHint: string;
+    ifsc: string;
+    verifyBank: string;
+    verifying: string;
+    verifiedOn: string;
+    verifyFailed: string;
+    phone: string;
+    notProvided: string;
+    consent: string;
+    consentLabel: string;
+    consentNotRecorded: string;
+    recentPurchases: string;
+    noPurchases: string;
+    slip: string;
+    date: string;
+    netWeight: string;
+    amount: string;
+    save: string;
+    saving: string;
+    cancel: string;
+    sectionBasics: string;
+    sectionBank: string;
+    sectionBankHint: string;
+    sectionConsent: string;
+    previous: string;
+    next: string;
+    pageOf: string;
+    formError: string;
+    networkError: string;
+    yes: string;
+    no: string;
   };
+  status: {
+    approved: string;
+    held: string;
+    rejected: string;
+    unpaid: string;
+    in_run: string;
+    paid: string;
+    failed: string;
+  };
+  forbidden: { title: string; body: string };
+  auth: { noProfileTitle: string; noProfileBody: string };
   errors: { title: string; body: string; retry: string };
 }
 
@@ -110,7 +172,7 @@ export const mr: Messages = {
   members: {
     title: "शेतकरी सभासद",
     search: "शोधा",
-    searchPlaceholder: "नाव, गाव किंवा सभासद क्रमांक",
+    searchPlaceholder: "सभासद क्रमांक किंवा नाव",
     code: "क्रमांक",
     name: "नाव",
     village: "गाव",
@@ -121,6 +183,74 @@ export const mr: Messages = {
     showing: "दाखवले",
     loadError: "सभासदांची यादी मिळवता आली नाही.",
     reload: "पुन्हा प्रयत्न करा",
+    addFarmer: "सभासद जोडा",
+    editFarmer: "सभासद संपादित करा",
+    backToList: "सभासदांकडे परत",
+    farmerId: "सभासद क्रमांक",
+    centre: "केंद्र",
+    allCentres: "सर्व केंद्रे",
+    allVillages: "सर्व गावे",
+    statusFilter: "स्थिती",
+    statusActive: "सक्रिय",
+    statusInactive: "निष्क्रिय",
+    statusAll: "सर्व",
+    clearFilters: "फिल्टर काढा",
+    crops: "पात्र पिके",
+    bank: "बँक खाते",
+    bankVerified: "पडताळलेले",
+    bankUnverified: "पडताळणी बाकी",
+    bankNone: "खाते नाही",
+    bankStaffOnly: "बँक तपशील फक्त कार्यालयीन कर्मचाऱ्यांना दिसतात.",
+    holderName: "खातेधारकाचे नाव",
+    accountNumber: "खाते क्रमांक",
+    accountKeepHint: "आहे तोच क्रमांक ठेवण्यासाठी रिकामे सोडा",
+    ifsc: "IFSC कोड",
+    verifyBank: "खाते पडताळले म्हणून नोंदवा",
+    verifying: "नोंदवत आहे…",
+    verifiedOn: "पडताळणी दिनांक",
+    verifyFailed: "पडताळणी नोंदवता आली नाही.",
+    phone: "मोबाइल",
+    notProvided: "दिलेले नाही",
+    consent: "संमती",
+    consentLabel: "सभासदाने त्यांची माहिती वापरण्यास संमती दिली आहे.",
+    consentNotRecorded: "संमती नोंदलेली नाही",
+    recentPurchases: "अलीकडील खरेदी",
+    noPurchases: "अजून खरेदी नाही.",
+    slip: "पावती",
+    date: "दिनांक",
+    netWeight: "निव्वळ वजन",
+    amount: "रक्कम",
+    save: "जतन करा",
+    saving: "जतन होत आहे…",
+    cancel: "रद्द करा",
+    sectionBasics: "सभासद माहिती",
+    sectionBank: "बँक खाते",
+    sectionBankHint: "बँक तपशील नंतरही जोडता येतील.",
+    sectionConsent: "संमती",
+    previous: "मागील",
+    next: "पुढील",
+    pageOf: "पान",
+    formError: "कृपया लाल रंगातील चुका दुरुस्त करा.",
+    networkError: "नेटवर्क उपलब्ध नाही. पुन्हा प्रयत्न करा.",
+    yes: "होय",
+    no: "नाही",
+  },
+  status: {
+    approved: "मंजूर",
+    held: "तपासणीसाठी थांबवले",
+    rejected: "नाकारले",
+    unpaid: "देय",
+    in_run: "पेमेंट यादीत",
+    paid: "दिले",
+    failed: "अयशस्वी",
+  },
+  forbidden: {
+    title: "प्रवेश नाही",
+    body: "हे पान पाहण्याची परवानगी आपल्या खात्याला नाही.",
+  },
+  auth: {
+    noProfileTitle: "खाते तयार नाही",
+    noProfileBody: "आपले लॉगिन बरोबर आहे, पण कर्मचारी प्रोफाइल सक्रिय नाही. कार्यालय व्यवस्थापकाशी संपर्क करा.",
   },
   errors: {
     title: "काहीतरी चुकले",
@@ -178,17 +308,85 @@ export const en: Messages = {
   members: {
     title: "Farmer members",
     search: "Search",
-    searchPlaceholder: "Name, village or member code",
+    searchPlaceholder: "Farmer ID or name",
     code: "Code",
     name: "Name",
     village: "Village",
     land: "Land",
     acres: "acres",
     none: "No members registered yet.",
-    noneForSearch: "No members match this search.",
+    noneForSearch: "No members match these filters.",
     showing: "Showing",
     loadError: "Could not load the member list.",
     reload: "Try again",
+    addFarmer: "Add farmer",
+    editFarmer: "Edit farmer",
+    backToList: "Back to members",
+    farmerId: "Farmer ID",
+    centre: "Centre",
+    allCentres: "All centres",
+    allVillages: "All villages",
+    statusFilter: "Status",
+    statusActive: "Active",
+    statusInactive: "Inactive",
+    statusAll: "All",
+    clearFilters: "Clear filters",
+    crops: "Eligible crops",
+    bank: "Bank account",
+    bankVerified: "Verified",
+    bankUnverified: "Not verified",
+    bankNone: "No account",
+    bankStaffOnly: "Bank details are visible to office staff only.",
+    holderName: "Account holder name",
+    accountNumber: "Account number",
+    accountKeepHint: "Leave empty to keep the current number",
+    ifsc: "IFSC code",
+    verifyBank: "Mark account as verified",
+    verifying: "Saving…",
+    verifiedOn: "Verified on",
+    verifyFailed: "Could not record the verification.",
+    phone: "Mobile",
+    notProvided: "Not provided",
+    consent: "Consent",
+    consentLabel: "The member has agreed to their data being used.",
+    consentNotRecorded: "Consent not recorded",
+    recentPurchases: "Recent purchases",
+    noPurchases: "No purchases yet.",
+    slip: "Slip",
+    date: "Date",
+    netWeight: "Net weight",
+    amount: "Amount",
+    save: "Save",
+    saving: "Saving…",
+    cancel: "Cancel",
+    sectionBasics: "Farmer details",
+    sectionBank: "Bank account",
+    sectionBankHint: "Bank details can also be added later.",
+    sectionConsent: "Consent",
+    previous: "Previous",
+    next: "Next",
+    pageOf: "Page",
+    formError: "Please correct the highlighted fields.",
+    networkError: "No network. Please try again.",
+    yes: "Yes",
+    no: "No",
+  },
+  status: {
+    approved: "Approved",
+    held: "Held for review",
+    rejected: "Rejected",
+    unpaid: "Unpaid",
+    in_run: "In payment run",
+    paid: "Paid",
+    failed: "Failed",
+  },
+  forbidden: {
+    title: "No access",
+    body: "Your account does not have permission to view this page.",
+  },
+  auth: {
+    noProfileTitle: "Account not set up",
+    noProfileBody: "Your login is correct, but there is no active staff profile for it. Please contact an office manager.",
   },
   errors: {
     title: "Something went wrong",
