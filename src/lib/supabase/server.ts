@@ -4,8 +4,9 @@ import { requireSupabaseEnv } from "@/lib/supabase/env";
 
 /** Supabase client bound to the signed-in user's cookies, so row level security applies. */
 export async function createClient() {
-  const { url, anonKey } = requireSupabaseEnv();
+  // Reading cookies first marks the calling route as dynamic, whatever the config.
   const cookieStore = await cookies();
+  const { url, anonKey } = requireSupabaseEnv();
 
   return createServerClient(url, anonKey, {
     cookies: {

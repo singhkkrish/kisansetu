@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOperator } from "@/lib/services/operator-context";
+import { readSupabaseEnv } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 
 const requestSchema = z.object({ deviceId: z.string().min(8).max(64) });
@@ -9,6 +10,9 @@ const BLOCK_SIZE = 200;
 
 /** Hands this phone a block of slip numbers so it can keep issuing slips offline. */
 export async function POST(request: Request) {
+  if (!readSupabaseEnv()) {
+    return NextResponse.json({ error: "server is not configured" }, { status: 503 });
+  }
   const supabase = await createClient();
   const lookup = await requireOperator(supabase);
   if (!lookup.ok) {

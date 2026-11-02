@@ -3,6 +3,7 @@ import { DEFAULT_MAX_FUTURE_SKEW_MINUTES } from "@/lib/offline/integrity";
 import { requireOperator } from "@/lib/services/operator-context";
 import { createSupabaseSyncRepository } from "@/lib/services/sync-repository";
 import { processSyncBatch } from "@/lib/services/sync-service";
+import { readSupabaseEnv } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 import { syncRequestSchema } from "@/lib/validation/procurement";
 
@@ -12,6 +13,9 @@ function maxFutureSkew(): number {
 }
 
 export async function POST(request: Request) {
+  if (!readSupabaseEnv()) {
+    return NextResponse.json({ error: "server is not configured" }, { status: 503 });
+  }
   const supabase = await createClient();
   const lookup = await requireOperator(supabase);
   if (!lookup.ok) {

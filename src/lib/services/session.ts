@@ -1,4 +1,6 @@
+import { connection } from "next/server";
 import { cache } from "react";
+import { readSupabaseEnv } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile } from "@/types/domain";
 
@@ -11,6 +13,11 @@ export interface SessionInfo {
 
 /** Signed-in user with their staff profile, or null. Cached per request. */
 export const getSession = cache(async (): Promise<SessionInfo | null> => {
+  // Unconfigured app: treat as signed out so the login page can show setup help.
+  if (!readSupabaseEnv()) {
+    await connection();
+    return null;
+  }
   const supabase = await createClient();
   const {
     data: { user },
