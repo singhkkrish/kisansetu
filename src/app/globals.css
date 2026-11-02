@@ -1,26 +1,62 @@
 @import "tailwindcss";
 
+/*
+  Palette: off-white ground, deep field green, near-black ink. Contrast is kept
+  high on purpose so screens stay readable in direct sunlight.
+*/
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fafaf6;
+  --surface: #ffffff;
+  --ink: #111c16;
+  --muted: #4a5a50;
+  --line: #dfe4d9;
+  --primary: #1b5e34;
+  --primary-hover: #14492a;
+  --primary-soft: #eaf3ec;
+  --warn: #7a4d00;
+  --warn-soft: #fff4d6;
+  --danger: #a32020;
+  --danger-soft: #fdecec;
 }
 
 @theme inline {
   --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --font-sans: "Noto Sans Devanagari", "Noto Sans", system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Visible focus for keyboard and switch-access users. */
+:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
