@@ -10,8 +10,9 @@ Built for a Farmer Producer Company in Latur, Maharashtra: about 6,200 members,
 
 ## Status
 
-This repository holds **Part 1: foundation**. See [What is done](#what-is-done)
-and [What comes next](#what-comes-next).
+This repository holds **Parts 1 to 3**: the foundation, sign-in with roles and
+the farmer registry, and the offline-first procurement entry engine. See
+[What is done](#what-is-done) and [What comes next](#what-comes-next).
 
 ## Stack
 
@@ -41,7 +42,7 @@ npm run dev                    # http://localhost:3000
 | --- | --- | --- |
 | `NEXT_PUBLIC_SUPABASE_URL` | yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Supabase anon (public) key |
-| `SUPABASE_SERVICE_ROLE_KEY` | reserved | Server-only admin key. Not used yet; needed for user management and payment jobs in Part 2. Never expose it to the browser. |
+| `SUPABASE_SERVICE_ROLE_KEY` | only for `staff:create` | Server-only admin key used by `npm run staff:create` on a trusted machine. Never put it in the app's hosting environment or expose it to the browser. |
 | `NEXT_PUBLIC_APP_URL` | no | Public base URL, defaults to `http://localhost:3000` |
 | `SYNC_MAX_FUTURE_SKEW_MINUTES` | no | How far ahead of the server a phone clock may be before an entry is held for review. Default `10`. |
 
@@ -49,13 +50,12 @@ No secrets belong in the repository. `.env.local` is git-ignored.
 
 ### Database
 
-Migrations live in `supabase/migrations`, applied in filename order. With the
-Supabase CLI:
+Migrations live in `supabase/migrations`, applied in filename order (there are six):
 
 ```bash
 supabase link --project-ref <your-project-ref>
 supabase db push
-psql "$DATABASE_URL" -f supabase/seed.sql   # optional sample data
+psql "$DATABASE_URL" -f supabase/seed.sql              # centres, 37 sample farmers, today's prices
 ```
 
 Or paste each migration file, in order, into the Supabase SQL editor.
@@ -63,33 +63,41 @@ Or paste each migration file, in order, into the Supabase SQL editor.
 In Supabase, go to Authentication and **turn off public sign-ups**. Staff
 accounts are created by an administrator.
 
-### Creating the first users
+### Creating staff logins
 
-1. In Supabase, Authentication, Users, add a user (email and password).
-2. Give that user a profile. For an office manager:
+Run this on a trusted machine, with `SUPABASE_SERVICE_ROLE_KEY` in `.env.local`:
 
-   ```sql
-   insert into public.profiles (id, full_name, role)
-   values ('<auth user id>', 'Office Manager', 'office_manager');
-   ```
+```bash
+npm run staff:create -- --email manager@yourcompany.example --name "Office Manager" --role office_manager
+npm run staff:create -- --email op07@yourcompany.example --name "Ganjur Operator" --role centre_operator --centre C07
+npm run staff:create -- --email op12@yourcompany.example --name "Murud Operator" --role centre_operator --centre C12
+```
 
-3. For a centre operator, attach a centre:
+A random password is printed once (or set `STAFF_PASSWORD`).
 
-   ```sql
-   insert into public.profiles (id, full_name, role, centre_id)
-   select '<auth user id>', 'Centre Operator', 'centre_operator', id
-   from public.centres where code = 'C07';
-   ```
+### Sample procurement slips (optional)
+
+After `seed.sql` and after creating operators for centres C07 and C12, load the
+three sample slips from the brief:
+
+```bash
+psql "$DATABASE_URL" -f supabase/seed_procurement.sql
+```
+
+It is safe to run twice. A slip is skipped, with a notice, when its centre has no
+operator yet. The slips carry valid hash chains, so they look like entries that
+arrived from a phone.
 
 ### Scripts
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev` | Development server |
+| `npm run dev` | Development server (the service worker is off in development) |
 | `npm run build` / `npm start` | Production build and server |
-| `npm test` | Unit tests |
+| `npm test` | Unit and database tests |
 | `npm run typecheck` | TypeScript check |
 | `npm run lint` | ESLint |
+| `npm run staff:create` | Create a staff login (see above) |
 
 ## Project structure
 
@@ -97,28 +105,32 @@ accounts are created by an administrator.
 src/
   app/
     (auth)/login/          Sign-in page
-    (dashboard)/           Authenticated shell, dashboard, members
-    api/sync/              Receives queued entries from phones
+    (dashboard)/           Dashboard, collect (wizard), procurement list and detail, members
+    api/sync/              Receives queued entries, replies with the server clock
     api/slip-block/        Hands a phone a block of slip numbers
+    api/offline/bootstrap/ Farmers (no bank data) and recent rates for offline use
+    api/procurement/[id]/review/   Manager approve / hold / reject
+    api/members/           Farmer registry API
   components/
-    ui/                    Button, Input, Label, Card, Notice
-    layout/                Header, navigation, sign-out
-    procurement/           Sync panel
-    members/               Member table
+    offline/               OfflineProvider (download, slips, auto-sync, backoff), sync status
+    procurement/           Wizard, number field, local entries list, review form
+    members/               Registry table, filters, form
+    ui/, layout/           Shared pieces
   lib/
     calculations/          Net weight and amount rules, formatting
     validation/            Zod schemas
-    offline/               Hash chain, queue, sync client
+    offline/               Queue, sync client, hash chain, clock offset, cached reference data
+    procurement/           Wizard input rules
     db/                    Dexie (IndexedDB) schema
-    services/              Sync service, Supabase repository, slip SMS
-    supabase/              Browser, server and proxy clients
+    services/              Sync service, Supabase repositories, entry views
+    auth/                  Permission matrix, API and page guards
     i18n/                  Marathi and English strings
-  hooks/                   Online status, live IndexedDB queries
-  types/                   Shared domain types
-  tests/                   Vitest suites
+  tests/                   Vitest suites (including database tests in an in-memory Postgres)
+public/sw.js               Service worker: the app opens with no network
 supabase/
-  migrations/              Schema, constraints, row level security
-  seed.sql                 Sample centres, members and prices
+  migrations/              Schema, constraints, row level security, procurement rules
+  seed.sql                 Sample centres, farmers and prices
+  seed_procurement.sql     The three sample slips
 ```
 
 ## How it works
@@ -141,12 +153,45 @@ row whose net weight or amount does not follow it.
 
 ### Offline entries
 
-- A phone gets a block of slip numbers while online (`/api/slip-block`) and
-  keeps issuing unique slips from it with no network.
-- Each entry is saved to IndexedDB with a client-generated id, then queued.
-- When the network returns, the queue is sent oldest first (`/api/sync`).
-- The server treats a repeated client id as a duplicate, so a lost response can
-  never create a second purchase.
+- While online, the app downloads the active farmers (no bank details) and the
+  recent daily rates into IndexedDB (Dexie), and a block of slip numbers for
+  the operator's centre. It refreshes these when they are older than 6 hours.
+- With no network the operator can still open the app, search the downloaded
+  farmers, see the cached rate, and save entries. Each entry gets a unique slip
+  number and an idempotency key (`clientId`) made when the wizard starts, so
+  tapping Save twice, or a reload, can only ever store one purchase.
+- Entries are `pending` until the **server's reply** says otherwise. Nothing is
+  shown as synced because a request was sent or the browser reports "online".
+- Sync sends the queue oldest first, one tab at a time (a Web Lock). A failure
+  keeps the entry pending with the reason, and the next automatic try waits
+  longer each time (2 s, 4 s, 8 s ... up to 5 minutes). Entries the server
+  rejects show as failed, with a **Retry failed entries** button.
+- If the server stores an entry but the reply is lost, the retry is recognised
+  by its `clientId` and answered as a duplicate. One purchase, never two.
+
+### The phone's clock is not trusted
+
+- `deviceRecordedAt` is kept exactly as the phone reported it and is labelled
+  "unverified" everywhere it is shown.
+- Every time the server answers, the phone records how far its clock was from
+  the server's. That offset travels with the entry (inside its hash) and is used
+  to pick the right day's rate. A large offset, or a clock running ahead, holds
+  the entry for review.
+- `server_received_at` is set by a database trigger when the row is inserted.
+  A client cannot supply it, and a later update cannot change it.
+- The same trigger decides approval status and flags (`rate_mismatch`,
+  `no_price_for_day`, `clock_ahead`, `clock_skew`, `chain_gap`), so even a direct
+  API call cannot insert an entry as already approved.
+
+### Audit trail and approvals
+
+- Every entry has an audit log: who created it, which centre, the phone's time,
+  the server's time, its sync status, and every later change to approval or
+  payment state (who, when, from what, to what, and why).
+- Purchase facts (weights, rate, amount, slip, farmer, both timestamps) are
+  immutable in the database. Operators cannot update entries at all.
+- Only office managers can change approval, through `review_entry`, which needs a
+  written reason to hold or reject and refuses once an entry is in a payment run.
 
 ### Tamper evidence
 
@@ -167,23 +212,75 @@ own receive time and why saved purchase facts are immutable in the database.
 - Members have a recorded consent timestamp, in line with the DPDP Act 2023.
 - Row level security limits operators to their own centre.
 
+## Testing the offline workflow in Chrome DevTools
+
+Use a **production build**, because the service worker (which lets the app open
+with no network) is only registered in production:
+
+```bash
+npm run build && npm start        # http://localhost:3000
+```
+
+1. Sign in as a **centre operator** (for example the C07 login). Open the
+   Dashboard and wait a few seconds. Under **Sync status**, *Farmers on this
+   phone* should become a number above zero. Visit **Collect** and **Entries**
+   once as well.
+2. Open DevTools (F12). Application, Service workers: `sw.js` should be
+   *activated and running*. Application, IndexedDB, `kisansetu`: you will see
+   `members`, `prices`, `entries` and `meta`. Application, Cache storage has
+   `ks-static-v1` and `ks-pages-v1`.
+3. Go offline: Network tab, change *No throttling* to **Offline**. The status
+   bar changes to **Offline**.
+4. Reload the page. It still opens (served from the saved copy).
+5. Open **Collect** and record an entry: search a farmer by name or ID, choose
+   Soybean, gross `1250`, tare `18`, moisture `11.5`, grade A. The preview shows
+   `1,232.0 kg` and `₹59,752.00`. Save. The screen shows the slip number and
+   **Waiting to send**. Press **New entry** and record another.
+6. In IndexedDB, `entries`, each row has `syncStatus: "pending"`, its
+   `clientId` (the idempotency key) and `deviceRecordedAt`. Reload the page: the
+   entries are still there.
+7. Go back online (Network, *No throttling*). Within about 30 seconds (or press
+   **Sync now**) the entries change to **Synced**, each with a *Received by
+   server* time that differs from the phone's time. In `entries`, rows now have
+   `serverReceivedAt`. Entries tab shows the same.
+8. **Lost reply (duplicate check).** Record an entry while online and, in the
+   Network tab, block the request URL `*/api/sync` the moment you tap Save, then
+   switch to Offline while the request is still pending. The server may store
+   the entry but the phone never hears back, so it keeps showing **Waiting to
+   send**. Go online and sync: the server answers "duplicate", the entry turns
+   **Synced**, and the server still holds exactly one row.
+9. **Failure and retry.** Block `/api/sync` (right-click the request, *Block
+   request URL*) and press **Sync now**. The entry stays pending and the panel
+   says the last attempt failed and will retry. Unblock it and sync. A server
+   rejection shows under **Failed** with a **Retry failed entries** button.
+10. **Wrong phone date.** Set the computer's clock a day ahead and open Collect.
+    The wizard finds no published rate for that date and refuses to save
+    ("No rate for today"), so a wrong date cannot silently price a purchase. An
+    entry whose recorded time is ahead of the server's clock arrives *held for
+    review*, and the server's own receive time is always the true one.
+
+Sign-out removes the downloaded farmer list and cached pages from the phone but
+keeps any entries that have not synced yet.
+
 ## What is done
 
 - Project setup and tooling
 - Database schema, constraints, triggers and row level security
 - Decimal-safe procurement calculations with tests
-- Zod validation
-- Offline store, slip number blocks, hash-chained queue and sync client
-- Server sync service with duplicate prevention and anomaly flags
+- Sign-in, two roles (centre operator, office manager) and a permission matrix
+  enforced in pages, API routes and the database
+- Farmer registry: search, filters, add, edit, details, masked bank accounts
+- Offline procurement wizard (seven steps, large numeric inputs, Marathi and English)
+- Dexie store of farmers and rates, offline search, slip-number blocks, hash-chained queue
+- Idempotent sync with retry and backoff, server timestamps, clock-offset handling
+- Sync status panel: online, pending, synced, failed, last successful sync, retry
+- Audit trail, immutable purchase facts, manager review of held entries
+- Service worker so the app opens with no network
 - Marathi SMS slip text
-- Sign-in, dashboard (today's prices, sync status) and member list
 
 ## What comes next
 
-- Member registry: add and edit members, bank verification
-- Operator collection screens: one step per screen, large numerals, slip summary
 - Daily price board: set and publish prices
 - Payment run: grouping, bank bulk file, status per farmer
 - Scale and moisture meter photo reading, anomaly review queue
-- Service worker so the app shell itself loads with no network
 - Stock, dispatch and weight-loss tracking

@@ -7,7 +7,7 @@ export async function precachePages(paths: string[]): Promise<void> {
   const assets = new Set<string>();
   for (const path of paths) {
     try {
-      const response = await fetch(path, { credentials: "same-origin" });
+      const response = await fetch(path, { credentials: "same-origin", headers: { "X-KS-Precache": "1" } });
       if (!response.ok || response.redirected) continue;
       const html = await response.text();
       for (const match of html.matchAll(/\/_next\/static\/[A-Za-z0-9_\-./%~]+\.(?:js|css)/g)) {

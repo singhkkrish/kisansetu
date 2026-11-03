@@ -69,6 +69,21 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // The app asks us to keep a page for offline use by fetching it with this header.
+  if (request.headers.get("X-KS-Precache") === "1") {
+    event.respondWith(
+      (async () => {
+        const response = await fetch(new Request(request.url, { credentials: "same-origin" }));
+        if (response.ok && !response.redirected && response.type === "basic") {
+          const cache = await caches.open(PAGES);
+          await cache.put(url.pathname, response.clone());
+        }
+        return response;
+      })(),
+    );
+    return;
+  }
+
   if (request.mode === "navigate") {
     event.respondWith(
       (async () => {

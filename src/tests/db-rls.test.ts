@@ -460,6 +460,14 @@ describe("server-authoritative entry integrity", () => {
       expect(log).toEqual([{ actor_id: MANAGER, action: "status_changed" }]);
     });
 
+    it("marks a manual hold with its own reason code so the hold is explainable", async () => {
+      const id = await insertAs(OPERATOR_C07, centreC07, "C07-00113");
+      await asUser(MANAGER, () => db.query("select review_entry($1, 'hold', 'Moisture reading looks wrong')", [id]));
+      const row = await entry(id);
+      expect(row.approval_status).toBe("held");
+      expect(row.flag_reasons).toEqual(["manual_hold"]);
+    });
+
     it("requires a reason to hold or reject", async () => {
       const id = await insertAs(OPERATOR_C07, centreC07, "C07-00109");
       const message = await asUser(MANAGER, () => failsWith(db.query("select review_entry($1, 'reject', '')", [id])));
