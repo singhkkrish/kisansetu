@@ -42,7 +42,6 @@ next-env.d.ts
 
 # local tooling
 AGENTS.md
-CLAUDE.md
 .env*.local
 !.env.example
 coverage/
