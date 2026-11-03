@@ -533,4 +533,21 @@ describe("sample procurement seed", () => {
     for (const e of entries) expect(await verifyPayloadHash(e)).toBe(true);
     expect(findChainBreak(entries.filter((e) => e.deviceId === "seed-device-c07"), null)).toBe(-1);
   });
+
+  it("gives the sample slips hashes the app itself accepts, in an unbroken chain", async () => {
+    const rows = (await db.query<Record<string, string | null>>(
+      `select client_id, slip_no, farmer_id, centre_id, operator_id, crop, grade, gross_kg::text, tare_kg::text,
+              moisture_pct::text, net_kg::text, rate_per_quintal::text, amount::text, device_id,
+              to_char(device_recorded_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as at,
+              payload_hash, prev_hash
+         from procurement_entries where slip_no in ('C07-24518','C07-24519') order by device_recorded_at`)).rows;
+    const entries = rows.map((r) => ({
+      clientId: r.client_id!, slipNo: r.slip_no!, farmerId: r.farmer_id!, centreId: r.centre_id!, operatorId: r.operator_id!,
+      crop: r.crop as "soybean", grade: r.grade as "A", grossKg: r.gross_kg!, tareKg: r.tare_kg!, moisturePct: r.moisture_pct!,
+      netKg: r.net_kg!, ratePerQuintal: r.rate_per_quintal!, amount: r.amount!, deviceId: r.device_id!,
+      deviceRecordedAt: r.at!, prevHash: r.prev_hash, clockOffsetMs: null, payloadHash: r.payload_hash!,
+    }));
+    for (const e of entries) expect(await verifyPayloadHash(e)).toBe(true);
+    expect(findChainBreak(entries, null)).toBe(-1);
+  });
 });

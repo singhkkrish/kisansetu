@@ -44,7 +44,9 @@ async function ready(name = freshName()) {
   const db = open(name);
   const deviceId = await getOrCreateDeviceId(db);
   await setSlipBlock(db, { centreCode: "C07", start: 24518, end: 24530 });
-  return { db, name, deviceId, ctx: { operatorId: IDS.operator, centreId: IDS.centre, centreCode: "C07", deviceId } };
+  // A fixed morning on the day the in-memory server has a published rate for.
+  const now = new Date("2026-11-02T01:00:00.000Z");
+  return { db, name, deviceId, ctx: { operatorId: IDS.operator, centreId: IDS.centre, centreCode: "C07", deviceId, now } };
 }
 
 /** A fetch that talks to the real sync service over an in-memory repository. */
