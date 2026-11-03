@@ -4,6 +4,7 @@ import { LogOut } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { clearOfflineSession } from "@/lib/offline/session";
 import { createClient } from "@/lib/supabase/client";
 
 export function SignOutButton({ label }: { label: string }) {
@@ -13,6 +14,8 @@ export function SignOutButton({ label }: { label: string }) {
   async function signOut() {
     setBusy(true);
     try {
+      // Remove this session's farmer list and cached pages, but never unsent entries.
+      await clearOfflineSession();
       await createClient().auth.signOut();
     } finally {
       router.replace("/login");

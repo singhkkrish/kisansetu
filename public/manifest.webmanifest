@@ -1,0 +1,9 @@
+{
+  "name": "KisanSetu",
+  "short_name": "KisanSetu",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#fafaf6",
+  "theme_color": "#1b5e34",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

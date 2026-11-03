@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { SyncPanel } from "@/components/procurement/sync-panel";
+import { SyncStatus } from "@/components/offline/sync-status";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { formatInr, istDate } from "@/lib/calculations/format";
@@ -90,7 +90,7 @@ export default async function DashboardPage({
           </CardContent>
         </Card>
 
-        {!isManager && <SyncPanel t={t.sync} />}
+        {!isManager && <SyncStatus t={t.sync} />}
       </div>
     </div>
   );

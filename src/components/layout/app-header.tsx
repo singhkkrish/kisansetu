@@ -3,18 +3,29 @@ import Link from "next/link";
 import { NavLinks, type NavItem } from "@/components/layout/nav-links";
 import { SignOutButton } from "@/components/layout/sign-out-button";
 import type { Messages } from "@/lib/i18n/messages";
+import type { UserRole } from "@/types/domain";
 
 interface AppHeaderProps {
   t: Messages;
   userName: string;
   roleLabel: string;
+  role: UserRole;
 }
 
-export function AppHeader({ t, userName, roleLabel }: AppHeaderProps) {
-  const items: NavItem[] = [
-    { href: "/dashboard", label: t.nav.dashboard },
-    { href: "/members", label: t.nav.members },
-  ];
+export function AppHeader({ t, userName, roleLabel, role }: AppHeaderProps) {
+  const items: NavItem[] =
+    role === "centre_operator"
+      ? [
+          { href: "/dashboard", label: t.nav.dashboard },
+          { href: "/collect", label: t.nav.collect },
+          { href: "/procurement", label: t.nav.entries },
+          { href: "/members", label: t.nav.members },
+        ]
+      : [
+          { href: "/dashboard", label: t.nav.dashboard },
+          { href: "/members", label: t.nav.members },
+          { href: "/procurement", label: t.nav.entries },
+        ];
 
   return (
     <header className="border-b border-line bg-surface">

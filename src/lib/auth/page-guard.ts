@@ -13,3 +13,11 @@ export async function requirePermission(permission: Permission): Promise<Session
   if (!can(session.profile.role, permission)) redirect("/dashboard?denied=1");
   return session;
 }
+
+/** Like requirePermission, but any one of the permissions is enough. */
+export async function requireAnyPermission(...permissions: Permission[]): Promise<SessionInfo> {
+  const session = await getSession();
+  if (!session) redirect("/login");
+  if (!permissions.some((p) => can(session.profile.role, p))) redirect("/dashboard?denied=1");
+  return session;
+}

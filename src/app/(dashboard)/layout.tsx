@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/app-header";
+import { OfflineProvider } from "@/components/offline/offline-provider";
 import { getMessages } from "@/lib/i18n/messages";
 import { getSession } from "@/lib/services/session";
 
@@ -13,10 +14,22 @@ export default async function DashboardLayout({ children }: { children: React.Re
       ? session.profile.preferred_lang === "mr" ? "कार्यालय व्यवस्थापक" : "Office manager"
       : session.centre?.name ?? (session.profile.preferred_lang === "mr" ? "केंद्र ऑपरेटर" : "Centre operator");
 
-  return (
+  const shell = (
     <div className="min-h-dvh">
-      <AppHeader t={t} userName={session.profile.full_name} roleLabel={roleLabel} />
+      <AppHeader t={t} userName={session.profile.full_name} roleLabel={roleLabel} role={session.profile.role} />
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">{children}</main>
     </div>
   );
+
+  // Only centre operators record purchases, so only they need the offline machinery.
+  if (session.profile.role === "centre_operator" && session.centre) {
+    return (
+      <OfflineProvider
+        operator={{ operatorId: session.userId, centreId: session.centre.id, centreCode: session.centre.code }}
+      >
+        {shell}
+      </OfflineProvider>
+    );
+  }
+  return shell;
 }
