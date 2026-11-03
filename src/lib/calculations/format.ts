@@ -18,6 +18,18 @@ export function formatKg(weight: string | number): string {
   return kg.format(weight as never);
 }
 
+const displayDate = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Kolkata",
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
+
+/** "2 Nov 2026" style date in India Standard Time, for display. */
+export function formatDisplayDate(iso: string): string {
+  return displayDate.format(new Date(iso));
+}
+
 /** Calendar date (YYYY-MM-DD) in India Standard Time for an ISO timestamp. */
 export function istDate(iso: string): string {
   const parts = new Intl.DateTimeFormat("en-CA", {

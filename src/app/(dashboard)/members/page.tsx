@@ -1,83 +1,80 @@
 import type { Metadata } from "next";
-import { Search } from "lucide-react";
-import { redirect } from "next/navigation";
+import { Plus } from "lucide-react";
+import Link from "next/link";
+import { MembersFilters } from "@/components/members/members-filters";
 import { MembersTable } from "@/components/members/members-table";
+import { Pagination } from "@/components/members/pagination";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
+import { can } from "@/lib/auth/permissions";
+import { requirePermission } from "@/lib/auth/page-guard";
 import { getMessages } from "@/lib/i18n/messages";
-import { getSession } from "@/lib/services/session";
+import { filtersToQuery, parseMemberFilters } from "@/lib/services/member-filters";
+import { MEMBER_PAGE_SIZE, listCentres, listVillages, searchMembers } from "@/lib/services/members";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Members" };
 
-const PAGE_SIZE = 50;
-
-/** Strips characters that have meaning inside a PostgREST filter expression. */
-function cleanSearch(raw: string): string {
-  return raw.replace(/[,()%*\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
-}
-
 export default async function MembersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string | string[] }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const session = await getSession();
-  if (!session) redirect("/login");
-
-  const t = getMessages(session.profile.preferred_lang).members;
-  const params = await searchParams;
-  const q = cleanSearch(Array.isArray(params.q) ? (params.q[0] ?? "") : (params.q ?? ""));
+  const session = await requirePermission("members:read");
+  const t = getMessages(session.profile.preferred_lang);
+  const filters = parseMemberFilters(await searchParams);
 
   const supabase = await createClient();
-  let query = supabase
-    .from("farmer_members")
-    .select("id, member_code, full_name, village, land_acres", { count: "exact" })
-    .eq("active", true)
-    .order("full_name")
-    .limit(PAGE_SIZE);
+  const [result, centres, villages] = await Promise.all([
+    searchMembers(supabase, filters),
+    listCentres(supabase),
+    listVillages(supabase),
+  ]);
 
-  if (q) {
-    query = query.or(`full_name.ilike.%${q}%,village.ilike.%${q}%,member_code.ilike.%${q}%`);
-  }
-
-  const { data, count, error } = await query;
+  const isFiltered = Boolean(filters.q || filters.village || filters.centreId || filters.status !== "active");
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">{t.title}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <h1 className="text-2xl font-bold">{t.members.title}</h1>
+        {can(session.profile.role, "members:write") && (
+          <Button asChild>
+            <Link href="/members/new">
+              <Plus className="h-5 w-5" aria-hidden="true" />
+              {t.members.addFarmer}
+            </Link>
+          </Button>
+        )}
+      </div>
 
-      <form role="search" method="get" className="flex gap-3">
-        <Input
-          name="q"
-          defaultValue={q}
-          placeholder={t.searchPlaceholder}
-          aria-label={t.search}
-          className="max-w-md"
-          autoComplete="off"
-        />
-        <Button type="submit" variant="secondary">
-          <Search className="h-5 w-5" aria-hidden="true" />
-          <span className="hidden sm:inline">{t.search}</span>
-        </Button>
-      </form>
+      <MembersFilters filters={filters} centres={centres} villages={villages} t={t.members} />
 
-      {error ? (
+      {result.failed ? (
         <div className="space-y-3">
-          <Notice tone="error">{t.loadError}</Notice>
+          <Notice tone="error">{t.members.loadError}</Notice>
           <Button asChild variant="secondary">
-            <a href={q ? `?q=${encodeURIComponent(q)}` : "?"}>{t.reload}</a>
+            <Link href={`/members${filtersToQuery(filters, filters.page)}`}>{t.members.reload}</Link>
           </Button>
         </div>
-      ) : !data || data.length === 0 ? (
-        <p className="py-8 text-muted">{q ? t.noneForSearch : t.none}</p>
+      ) : result.rows.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-line px-6 py-12 text-center">
+          <p className="text-base text-muted">{isFiltered ? t.members.noneForSearch : t.members.none}</p>
+          {isFiltered && (
+            <Button asChild variant="secondary" className="mt-4">
+              <Link href="/members">{t.members.clearFilters}</Link>
+            </Button>
+          )}
+        </div>
       ) : (
         <>
-          <MembersTable rows={data} t={t} />
-          <p className="text-sm text-muted">
-            {t.showing} {data.length} / {count ?? data.length}
-          </p>
+          <MembersTable rows={result.rows} t={t} />
+          <Pagination
+            filters={filters}
+            total={result.total}
+            pageSize={MEMBER_PAGE_SIZE}
+            shown={result.rows.length}
+            t={t.members}
+          />
         </>
       )}
     </div>

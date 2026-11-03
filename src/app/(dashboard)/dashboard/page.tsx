@@ -11,11 +11,17 @@ import type { Crop } from "@/types/domain";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const session = await getSession();
   if (!session) redirect("/login");
 
   const t = getMessages(session.profile.preferred_lang);
+  // requirePermission() sends people here with ?denied=1 when a page is not theirs to open.
+  const denied = (await searchParams).denied !== undefined;
   const supabase = await createClient();
   const today = istDate(new Date().toISOString());
 
@@ -31,6 +37,13 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      {denied && (
+        <Notice tone="warn">
+          <p className="font-semibold">{t.forbidden.title}</p>
+          <p className="mt-0.5">{t.forbidden.body}</p>
+        </Notice>
+      )}
+
       <h1 className="text-2xl font-bold">
         {t.dashboard.welcome}, {session.profile.full_name}
       </h1>
