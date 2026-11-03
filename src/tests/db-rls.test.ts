@@ -364,3 +364,143 @@ describe("centre scoping, prices and approvals", () => {
     expect(message).toMatch(/row-level security/i);
   });
 });
+
+describe("server-authoritative entry integrity", () => {
+  async function insertAs(operatorId: string, centreId: string, slipNo: string, overrides: Record<string, string> = {}) {
+    const v = {
+      rate: "4850", at: "now()", offset: "null", approval: "'approved'", sync: "'pending'",
+      payment: "'paid'", received: "'2001-01-01'", flags: "'{}'", ...overrides,
+    };
+    return asUser(operatorId, async () =>
+      (await db.query<{ id: string }>(`
+        insert into procurement_entries
+          (client_id, slip_no, farmer_id, centre_id, operator_id, crop, grade, gross_kg, tare_kg, moisture_pct,
+           net_kg, rate_per_quintal, amount, device_id, device_recorded_at, device_clock_offset_ms, payload_hash,
+           approval_status, sync_status, payment_status, server_received_at, flag_reasons)
+        select gen_random_uuid(), '${slipNo}', f.id, '${centreId}', '${operatorId}', 'soybean', 'A', 860.0, 12.0, 14.0,
+               831.0, ${v.rate}, round(831.0 * ${v.rate} / 100, 2), 'dev-int-0001', ${v.at}, ${v.offset}, repeat('b', 64),
+               ${v.approval}, ${v.sync}, ${v.payment}, ${v.received}, ${v.flags}
+          from farmer_members f where f.member_code = 'FM00101' returning id`)).rows[0].id);
+  }
+
+  async function entry(id: string) {
+    return (await db.query<Record<string, unknown>>("select * from procurement_entries where id = $1", [id])).rows[0];
+  }
+
+  it("ignores a client's claims about its own state and stamps the server time", async () => {
+    const id = await insertAs(OPERATOR_C07, centreC07, "C07-00101");
+    const row = await entry(id);
+    expect(row.sync_status).toBe("synced");
+    expect(row.payment_status).toBe("unpaid");
+    expect(row.approval_status).toBe("approved");
+    expect(new Date(row.server_received_at as string).getFullYear()).toBeGreaterThan(2001);
+  });
+
+  it("holds an entry whose rate differs from the published rate", async () => {
+    const id = await insertAs(OPERATOR_C07, centreC07, "C07-00102", { rate: "5000" });
+    const row = await entry(id);
+    expect(row.approval_status).toBe("held");
+    expect(row.flag_reasons).toContain("rate_mismatch");
+  });
+
+  it("holds an entry recorded on a day with no published price", async () => {
+    const id = await insertAs(OPERATOR_C07, centreC07, "C07-00103", { at: "now() - interval '40 days'" });
+    expect((await entry(id)).flag_reasons).toContain("no_price_for_day");
+  });
+
+  it("holds an entry from a clock running ahead of the server", async () => {
+    const id = await insertAs(OPERATOR_C07, centreC07, "C07-00104", { at: "now() + interval '2 hours'" });
+    const row = await entry(id);
+    expect(row.flag_reasons).toContain("clock_ahead");
+    expect(row.approval_status).toBe("held");
+  });
+
+  it("flags a large measured clock offset", async () => {
+    const id = await insertAs(OPERATOR_C07, centreC07, "C07-00105", { offset: "3600000" });
+    expect((await entry(id)).flag_reasons).toContain("clock_skew");
+  });
+
+  it("writes a created audit record with operator, centre and both timestamps", async () => {
+    const id = await insertAs(OPERATOR_C07, centreC07, "C07-00106");
+    const log = (await db.query<{ action: string; new_values: Record<string, unknown> }>(
+      "select action, new_values from procurement_audit_logs where entry_id = $1", [id])).rows;
+    expect(log).toHaveLength(1);
+    expect(log[0].action).toBe("created");
+    expect(log[0].new_values).toMatchObject({ created_by: OPERATOR_C07, centre_id: centreC07, sync_status: "synced" });
+    expect(log[0].new_values.device_recorded_at).toBeTruthy();
+    expect(log[0].new_values.server_received_at).toBeTruthy();
+  });
+
+  it("lets an operator read the audit trail of their own centre only", async () => {
+    const own = await asUser(OPERATOR_C07, async () => (await db.query<{ slip_no: string }>(
+      "select e.slip_no from procurement_audit_logs a join procurement_entries e on e.id = a.entry_id")).rows);
+    expect(own.length).toBeGreaterThan(0);
+    expect(own.every((r) => r.slip_no.startsWith("C07-"))).toBe(true);
+  });
+
+  it("refuses any change to the recorded purchase facts, even by a manager", async () => {
+    const id = await insertAs(OPERATOR_C07, centreC07, "C07-00107");
+    for (const set of ["gross_kg = 900.0", "server_received_at = now()", "device_clock_offset_ms = 5"]) {
+      const message = await asUser(MANAGER, () => failsWith(db.query(`update procurement_entries set ${set} where id = '${id}'`)));
+      expect(message).toMatch(/immutable|check/i);
+    }
+  });
+
+  describe("review_entry", () => {
+    it("lets a manager approve a held entry and records who did it", async () => {
+      const id = await insertAs(OPERATOR_C07, centreC07, "C07-00108", { rate: "5000" });
+      await asUser(MANAGER, () => db.query("select review_entry($1, 'approve', 'Rate confirmed by phone')", [id]));
+      const row = await entry(id);
+      expect(row.approval_status).toBe("approved");
+      expect(row.review_note).toBe("Rate confirmed by phone");
+      const log = (await db.query<{ actor_id: string; action: string }>(
+        "select actor_id, action from procurement_audit_logs where entry_id = $1 and action = 'status_changed'", [id])).rows;
+      expect(log).toEqual([{ actor_id: MANAGER, action: "status_changed" }]);
+    });
+
+    it("requires a reason to hold or reject", async () => {
+      const id = await insertAs(OPERATOR_C07, centreC07, "C07-00109");
+      const message = await asUser(MANAGER, () => failsWith(db.query("select review_entry($1, 'reject', '')", [id])));
+      expect(message).toMatch(/reason/i);
+    });
+
+    it("refuses operators", async () => {
+      const id = await insertAs(OPERATOR_C07, centreC07, "C07-00110", { rate: "5000" });
+      const message = await asUser(OPERATOR_C07, () => failsWith(db.query("select review_entry($1, 'approve', null)", [id])));
+      expect(message).toMatch(/only office managers/i);
+      expect((await entry(id)).approval_status).toBe("held");
+    });
+
+    it("refuses once the entry is in a payment run", async () => {
+      const id = await insertAs(OPERATOR_C07, centreC07, "C07-00111");
+      await db.query("update procurement_entries set payment_status = 'in_run' where id = $1", [id]);
+      const message = await asUser(MANAGER, () => failsWith(db.query("select review_entry($1, 'hold', 'second look needed')", [id])));
+      expect(message).toMatch(/payment run/i);
+    });
+  });
+
+  it("stops an operator silently editing an entry after it was approved", async () => {
+    const id = await insertAs(OPERATOR_C07, centreC07, "C07-00112");
+    const rows = await asUser(OPERATOR_C07, async () =>
+      (await db.query("update procurement_entries set approval_status = 'held', review_note = 'x' where id = $1 returning id", [id])).rows);
+    expect(rows).toEqual([]);
+    expect((await entry(id)).approval_status).toBe("approved");
+  });
+});
+
+describe("sample procurement seed", () => {
+  it("inserts the three brief slips with the right figures and is safe to run twice", async () => {
+    // Needs an operator for each of the two centres: the two test operators.
+    const seed = fs.readFileSync(path.join(SUPABASE_DIR, "seed_procurement.sql"), "utf8");
+    await db.exec(seed);
+    await db.exec(seed);
+    const rows = (await db.query<{ slip_no: string; net_kg: string; rate_per_quintal: string; amount: string; approval_status: string; flag_reasons: string[] }>(
+      "select slip_no, net_kg, rate_per_quintal, amount, approval_status, flag_reasons from procurement_entries where slip_no in ('C07-24518','C07-24519','C12-08876') order by slip_no")).rows;
+    expect(rows.map((r) => [r.slip_no, r.net_kg, r.rate_per_quintal, r.amount])).toEqual([
+      ["C07-24518", "1232.0", "4850.00", "59752.00"],
+      ["C07-24519", "831.0", "4850.00", "40303.50"],
+      ["C12-08876", "630.0", "7200.00", "45360.00"],
+    ]);
+    expect(rows.every((r) => r.approval_status === "approved" && r.flag_reasons.length === 0)).toBe(true);
+  });
+});
