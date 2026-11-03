@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SyncRepository } from "@/lib/services/sync-service";
+import type { FlagReason } from "@/types/domain";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -12,11 +13,13 @@ export function createSupabaseSyncRepository(supabase: SupabaseClient): SyncRepo
     async findEntryByClientId(clientId) {
       const { data, error } = await supabase
         .from("procurement_entries")
-        .select("payload_hash")
+        .select("payload_hash, server_received_at")
         .eq("client_id", clientId)
         .maybeSingle();
       if (error) throw error;
-      return data ? { payloadHash: data.payload_hash as string } : null;
+      return data
+        ? { payloadHash: data.payload_hash as string, serverReceivedAt: data.server_received_at as string }
+        : null;
     },
 
     async isKnownHash(deviceId, hash) {
@@ -62,10 +65,21 @@ export function createSupabaseSyncRepository(supabase: SupabaseClient): SyncRepo
     },
 
     async insertEntry(row) {
-      const { error } = await supabase.from("procurement_entries").insert(row);
-      if (!error) return "inserted";
+      // Returning the stored row gives the server's own receive time and final flags.
+      const { data, error } = await supabase
+        .from("procurement_entries")
+        .insert(row)
+        .select("server_received_at, flag_reasons")
+        .single();
+      if (!error) {
+        return {
+          status: "inserted",
+          serverReceivedAt: data?.server_received_at as string | undefined,
+          flagReasons: (data?.flag_reasons ?? undefined) as FlagReason[] | undefined,
+        };
+      }
       if (error.code === "23505") {
-        return error.message.includes("slip_no") ? "duplicate_slip" : "duplicate_client";
+        return { status: error.message.includes("slip_no") ? "duplicate_slip" : "duplicate_client" };
       }
       throw error;
     },

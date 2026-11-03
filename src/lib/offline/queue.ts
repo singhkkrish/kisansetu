@@ -1,5 +1,6 @@
 import { calculateProcurement } from "@/lib/calculations/procurement";
 import type { LocalDatabase, LocalEntry, SlipBlock } from "@/lib/db/local";
+import { getClockOffset } from "@/lib/offline/clock";
 import { computePayloadHash } from "@/lib/offline/integrity";
 import {
   procurementInputSchema,
@@ -18,10 +19,24 @@ export class SlipBlockExhaustedError extends Error {
   }
 }
 
+export class WrongCentreSlipBlockError extends Error {
+  constructor() {
+    super("The slip numbers on this phone belong to a different centre. Connect to get new ones.");
+    this.name = "WrongCentreSlipBlockError";
+  }
+}
+
 export interface RecordingContext {
   operatorId: string;
   centreId: string;
+  /** When given, the slip block on the phone must belong to this centre. */
+  centreCode?: string;
   deviceId: string;
+  /**
+   * Fixed for one wizard run. If the operator taps Save twice, or the screen
+   * reloads and saves again, the same entry comes back instead of a second one.
+   */
+  clientId?: string;
   now?: Date;
 }
 
@@ -92,12 +107,20 @@ export async function recordProcurement(
   const input = procurementInputSchema.parse(rawInput);
   const calc = calculateProcurement(input);
   const now = context.now ?? new Date();
+  const clientId = context.clientId ?? globalThis.crypto.randomUUID();
 
   for (let attempt = 0; attempt < MAX_RECORD_ATTEMPTS; attempt++) {
+    const already = await db.entries.where("clientId").equals(clientId).first();
+    if (already) return already;
+
     const { block, prevHash } = await readChainState(db);
+    if (context.centreCode && block.centreCode !== context.centreCode) {
+      throw new WrongCentreSlipBlockError();
+    }
+    const offset = await getClockOffset(db);
 
     const unsigned: Omit<EntryRecord, "payloadHash"> = {
-      clientId: globalThis.crypto.randomUUID(),
+      clientId,
       slipNo: formatSlipNo(block.centreCode, block.next),
       farmerId: input.farmerId,
       centreId: context.centreId,
@@ -113,6 +136,7 @@ export async function recordProcurement(
       deviceId: context.deviceId,
       deviceRecordedAt: now.toISOString(),
       prevHash,
+      clockOffsetMs: offset ? Math.round(offset.offsetMs) : null,
     };
     const payloadHash = await computePayloadHash(unsigned);
 
@@ -126,33 +150,54 @@ export async function recordProcurement(
     };
 
     const committed = await db.transaction("rw", db.entries, db.meta, async () => {
+      if (await db.entries.where("clientId").equals(clientId).first()) return "existing" as const;
       const current = await db.meta.get(SLIP_BLOCK_KEY);
       const currentHead = await db.meta.get(LAST_HASH_KEY);
       const currentBlock = current?.value as SlipBlock | undefined;
       const currentPrev = typeof currentHead?.value === "string" ? currentHead.value : null;
 
-      if (currentBlock?.next !== block.next || currentPrev !== prevHash) return false;
+      if (currentBlock?.next !== block.next || currentPrev !== prevHash) return false as const;
 
       await db.entries.add(entry);
       await db.meta.put({ key: SLIP_BLOCK_KEY, value: { ...block, next: block.next + 1 } });
       await db.meta.put({ key: LAST_HASH_KEY, value: payloadHash });
-      return true;
+      return true as const;
     });
 
-    if (committed) return entry;
+    if (committed === "existing") {
+      const saved = await db.entries.where("clientId").equals(clientId).first();
+      if (saved) return saved;
+    } else if (committed) {
+      return entry;
+    }
   }
 
   throw new Error("Could not save the entry because another save kept changing the queue. Try again.");
 }
 
 /** Oldest first, so the server sees the chain in order. */
-export async function getPendingEntries(db: LocalDatabase, limit: number): Promise<LocalEntry[]> {
+export async function getPendingEntries(
+  db: LocalDatabase,
+  limit: number,
+  operatorId?: string,
+): Promise<LocalEntry[]> {
   const rows = await db.entries.where("syncStatus").equals("pending").sortBy("seq");
-  return rows.slice(0, limit);
+  return rows.filter((e) => !operatorId || e.operatorId === operatorId).slice(0, limit);
 }
 
 export async function countPending(db: LocalDatabase): Promise<number> {
   return db.entries.where("syncStatus").equals("pending").count();
+}
+
+export async function countByStatus(
+  db: LocalDatabase,
+): Promise<{ pending: number; synced: number; failed: number }> {
+  const [pending, synced, failed] = await Promise.all([
+    db.entries.where("syncStatus").equals("pending").count(),
+    db.entries.where("syncStatus").equals("synced").count(),
+    db.entries.where("syncStatus").equals("rejected").count(),
+  ]);
+  return { pending, synced, failed };
 }
 
 export async function listRecentEntries(db: LocalDatabase, limit = 20): Promise<LocalEntry[]> {

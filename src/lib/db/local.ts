@@ -13,6 +13,10 @@ export interface LocalEntry extends EntryRecord {
   /** "flagged" entries are synced but held for manager review. */
   flagged: boolean;
   lastError?: string;
+  /** Set only from the server's reply, never from the phone's clock. */
+  serverReceivedAt?: string;
+  /** Earliest time (epoch ms) the next automatic retry may run. */
+  nextRetryAt?: number;
   createdAt: string;
 }
 
@@ -23,6 +27,10 @@ export interface CachedMember {
   village: string;
   phone: string | null;
   landAcres: number;
+  centreId: string | null;
+  crops: Crop[];
+  /** Lower-case "code name village" so a search is one substring test. */
+  searchKey: string;
 }
 
 export interface CachedPrice {

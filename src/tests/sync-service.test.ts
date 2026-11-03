@@ -1,43 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  processSyncBatch,
-  type EntryRow,
-  type InsertResult,
-  type SyncContext,
-  type SyncRepository,
-} from "@/lib/services/sync-service";
+import { processSyncBatch, type SyncContext } from "@/lib/services/sync-service";
 import { DEVICE_ID, IDS, makeEntry } from "./helpers";
-
-class MemoryRepo implements SyncRepository {
-  entries = new Map<string, EntryRow>();
-  events: { outcome: string; detail: Record<string, unknown> }[] = [];
-  farmers = new Set<string>([IDS.farmer]);
-  prices = new Map<string, string>([["2026-11-02|soybean|A", "4850.00"]]);
-
-  async findEntryByClientId(clientId: string) {
-    const row = this.entries.get(clientId);
-    return row ? { payloadHash: row.payload_hash } : null;
-  }
-  async isKnownHash(_deviceId: string, hash: string) {
-    return [...this.entries.values()].some((r) => r.payload_hash === hash) ||
-      this.events.some((e) => e.detail.payloadHash === hash);
-  }
-  async farmerExists(id: string) {
-    return this.farmers.has(id);
-  }
-  async getRate(date: string, crop: string, grade: string) {
-    return this.prices.get(`${date}|${crop}|${grade}`) ?? null;
-  }
-  async insertEntry(row: EntryRow): Promise<InsertResult> {
-    if (this.entries.has(row.client_id)) return "duplicate_client";
-    if ([...this.entries.values()].some((r) => r.slip_no === row.slip_no)) return "duplicate_slip";
-    this.entries.set(row.client_id, row);
-    return "inserted";
-  }
-  async logEvent(e: { outcome: string; detail: Record<string, unknown> }) {
-    this.events.push(e);
-  }
-}
+import { MemoryRepo } from "./memory-repo";
 
 const ctx: SyncContext = {
   operatorId: IDS.operator,

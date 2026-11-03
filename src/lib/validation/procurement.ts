@@ -64,6 +64,11 @@ export const entryRecordSchema = z
     deviceId: z.string().min(8).max(64),
     deviceRecordedAt: z.iso.datetime({ offset: true }),
     prevHash: sha256.nullable(),
+    /**
+     * The phone's measurement of (server time - device time) at its last contact
+     * with the server. Advisory: the server keeps its own receive time.
+     */
+    clockOffsetMs: z.number().int().min(-86_400_000).max(86_400_000).nullish(),
     payloadHash: sha256,
   })
   .superRefine((value, ctx) => {

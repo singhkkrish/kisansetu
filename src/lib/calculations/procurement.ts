@@ -91,6 +91,20 @@ export function calculateProcurement(input: ProcurementCalcInput): ProcurementCa
   };
 }
 
+export type CalcAttempt =
+  | { ok: true; result: ProcurementCalcResult }
+  | { ok: false; error: string };
+
+/** Like calculateProcurement, but reports a bad input as a value instead of throwing. */
+export function tryCalculate(input: ProcurementCalcInput): CalcAttempt {
+  try {
+    return { ok: true, result: calculateProcurement(input) };
+  } catch (error) {
+    if (error instanceof CalculationError) return { ok: false, error: error.message };
+    throw error;
+  }
+}
+
 /** Exact decimal equality for values that arrive as strings or numbers. */
 export function decimalEquals(a: DecimalInput, b: DecimalInput): boolean {
   return new D(String(a)).eq(new D(String(b)));

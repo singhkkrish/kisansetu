@@ -48,7 +48,8 @@ export async function POST(request: Request) {
       },
       createSupabaseSyncRepository(supabase),
     );
-    return NextResponse.json({ results });
+    // serverTime lets the phone measure how far its own clock is off.
+    return NextResponse.json({ results, serverTime: new Date().toISOString() });
   } catch (error) {
     console.error("sync failed", error);
     return NextResponse.json({ error: "sync failed, try again" }, { status: 500 });

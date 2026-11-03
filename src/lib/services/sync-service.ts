@@ -5,6 +5,9 @@ import type { SyncItemResult } from "@/lib/offline/sync";
 import { entryRecordSchema, type EntryRecord } from "@/lib/validation/procurement";
 import type { Crop, FlagReason, Grade } from "@/types/domain";
 
+/** A phone whose clock was this far from the server's is flagged for review. */
+export const MAX_CLOCK_OFFSET_MS = 15 * 60 * 1000;
+
 export interface SyncContext {
   operatorId: string;
   centreId: string;
@@ -30,6 +33,7 @@ export interface EntryRow {
   amount: string;
   device_id: string;
   device_recorded_at: string;
+  device_clock_offset_ms: number | null;
   payload_hash: string;
   prev_hash: string | null;
   sync_status: "synced";
@@ -39,13 +43,26 @@ export interface EntryRow {
 
 export type InsertResult = "inserted" | "duplicate_client" | "duplicate_slip";
 
+/**
+ * What the database actually stored. The server decides the receive time and the
+ * final flags itself, so the outcome reported to the phone comes from here and
+ * not from what the application predicted.
+ */
+export interface InsertOutcome {
+  status: InsertResult;
+  serverReceivedAt?: string;
+  flagReasons?: FlagReason[];
+}
+
 /** Storage the sync service needs. Implemented over Supabase in sync-repository.ts. */
 export interface SyncRepository {
-  findEntryByClientId(clientId: string): Promise<{ payloadHash: string } | null>;
+  findEntryByClientId(
+    clientId: string,
+  ): Promise<{ payloadHash: string; serverReceivedAt?: string } | null>;
   isKnownHash(deviceId: string, hash: string): Promise<boolean>;
   farmerExists(farmerId: string): Promise<boolean>;
   getRate(date: string, crop: Crop, grade: Grade): Promise<string | null>;
-  insertEntry(row: EntryRow): Promise<InsertResult>;
+  insertEntry(row: EntryRow): Promise<InsertOutcome>;
   logEvent(event: {
     deviceId: string;
     operatorId: string;
@@ -142,7 +159,12 @@ async function processOne(
       outcome: "duplicate",
       detail: { slipNo: entry.slipNo, payloadHash: entry.payloadHash },
     });
-    return { clientId: entry.clientId, outcome: "duplicate", slipNo: entry.slipNo };
+    return {
+      clientId: entry.clientId,
+      outcome: "duplicate",
+      slipNo: entry.slipNo,
+      ...(existing.serverReceivedAt ? { serverReceivedAt: existing.serverReceivedAt } : {}),
+    };
   }
 
   if (!(await repo.farmerExists(entry.farmerId))) {
@@ -151,7 +173,7 @@ async function processOne(
 
   const flags = await collectFlags(entry, ctx, repo, seenInBatch);
 
-  const insert = await repo.insertEntry({
+  const stored = await repo.insertEntry({
     client_id: entry.clientId,
     slip_no: entry.slipNo,
     farmer_id: entry.farmerId,
@@ -167,6 +189,7 @@ async function processOne(
     amount: entry.amount,
     device_id: entry.deviceId,
     device_recorded_at: entry.deviceRecordedAt,
+    device_clock_offset_ms: entry.clockOffsetMs ?? null,
     payload_hash: entry.payloadHash,
     prev_hash: entry.prevHash,
     sync_status: "synced",
@@ -174,7 +197,7 @@ async function processOne(
     flag_reasons: flags,
   });
 
-  if (insert === "duplicate_client") {
+  if (stored.status === "duplicate_client") {
     // Lost the race against a parallel retry of the same entry.
     seenInBatch.add(entry.payloadHash);
     await repo.logEvent({
@@ -186,24 +209,26 @@ async function processOne(
     });
     return { clientId: entry.clientId, outcome: "duplicate", slipNo: entry.slipNo };
   }
-  if (insert === "duplicate_slip") {
+  if (stored.status === "duplicate_slip") {
     return reject(entry.clientId, "slip_number_already_used", entry.payloadHash);
   }
 
   seenInBatch.add(entry.payloadHash);
-  const outcome = flags.length > 0 ? "flagged" : "accepted";
+  const finalFlags = stored.flagReasons ?? flags;
+  const outcome = finalFlags.length > 0 ? "flagged" : "accepted";
   await repo.logEvent({
     deviceId: ctx.deviceId,
     operatorId: ctx.operatorId,
     clientId: entry.clientId,
     outcome,
-    detail: { slipNo: entry.slipNo, payloadHash: entry.payloadHash, flags },
+    detail: { slipNo: entry.slipNo, payloadHash: entry.payloadHash, flags: finalFlags },
   });
   return {
     clientId: entry.clientId,
     outcome,
     slipNo: entry.slipNo,
-    ...(flags.length > 0 ? { flagReasons: flags } : {}),
+    ...(stored.serverReceivedAt ? { serverReceivedAt: stored.serverReceivedAt } : {}),
+    ...(finalFlags.length > 0 ? { flagReasons: finalFlags } : {}),
   };
 }
 
@@ -225,7 +250,12 @@ async function collectFlags(
     if (!known) flags.push("chain_gap");
   }
 
-  const rate = await repo.getRate(istDate(entry.deviceRecordedAt), entry.crop, entry.grade);
+  if (Math.abs(entry.clockOffsetMs ?? 0) > MAX_CLOCK_OFFSET_MS) flags.push("clock_skew");
+
+  // The phone's date is only a claim, so it is corrected by the offset the
+  // phone itself measured against the server before looking up the day's rate.
+  const correctedMs = Date.parse(entry.deviceRecordedAt) + (entry.clockOffsetMs ?? 0);
+  const rate = await repo.getRate(istDate(new Date(correctedMs).toISOString()), entry.crop, entry.grade);
   if (rate === null) {
     flags.push("no_price_for_day");
   } else if (!decimalEquals(rate, entry.ratePerQuintal)) {

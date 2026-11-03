@@ -32,6 +32,7 @@ const HASHED_FIELDS = [
   "deviceId",
   "deviceRecordedAt",
   "prevHash",
+  "clockOffsetMs",
 ] as const satisfies readonly (keyof HashableEntry)[];
 
 /** Deterministic JSON: object keys are emitted in the order given. */
