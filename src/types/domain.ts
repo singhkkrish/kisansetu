@@ -17,6 +17,7 @@ export const FLAG_REASONS = [
   "chain_gap",
   "clock_skew",
   "manual_hold",
+  "superseded_rate",
 ] as const;
 export type FlagReason = (typeof FLAG_REASONS)[number];
 

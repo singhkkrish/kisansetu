@@ -27,7 +27,7 @@ export default async function ProcurementPage({
     return (
       <div className="space-y-6">
         <h1 className="text-2xl font-bold">{p.title}</h1>
-        <LocalEntries t={t} />
+        <LocalEntries t={t} lang={session.profile.preferred_lang} />
       </div>
     );
   }

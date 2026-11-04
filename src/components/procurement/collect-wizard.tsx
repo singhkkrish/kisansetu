@@ -7,13 +7,16 @@ import { useOffline } from "@/components/offline/offline-provider";
 import { NumberField } from "@/components/procurement/number-field";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { PriceStatusLine } from "@/components/prices/price-status-line";
+import { SlipPanel } from "@/components/slip/slip-panel";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
 import { useLocalQuery } from "@/hooks/use-local-query";
 import { formatInr, formatKg } from "@/lib/calculations/format";
 import { tryCalculate } from "@/lib/calculations/procurement";
-import { getLocalDb, type CachedMember, type LocalEntry } from "@/lib/db/local";
+import { getLocalDb, type CachedMember, type CachedPrice, type LocalEntry } from "@/lib/db/local";
 import type { Messages } from "@/lib/i18n/messages";
+import { getPart4Messages } from "@/lib/i18n/part4-messages";
 import { businessDate } from "@/lib/offline/clock";
 import { SlipBlockExhaustedError, WrongCentreSlipBlockError, recordProcurement, slipNumbersRemaining } from "@/lib/offline/queue";
 import { listCachedRates, searchCachedMembers } from "@/lib/offline/reference-data";
@@ -35,9 +38,14 @@ interface Draft {
   tare: string;
   moisture: string;
   grade: Grade | null;
+  /**
+   * The published price this entry will carry, locked when the grade is chosen.
+   * A newer price arriving afterwards never replaces it unless the operator says so.
+   */
+  snap: CachedPrice | null;
 }
 
-const EMPTY_DRAFT: Draft = { farmer: null, crop: null, gross: "", tare: "", moisture: "", grade: null };
+const EMPTY_DRAFT: Draft = { farmer: null, crop: null, gross: "", tare: "", moisture: "", grade: null, snap: null };
 
 function Row({ label, value, strong }: { label: string; value: React.ReactNode; strong?: boolean }) {
   return (
@@ -48,8 +56,9 @@ function Row({ label, value, strong }: { label: string; value: React.ReactNode; 
   );
 }
 
-export function CollectWizard({ t }: { t: Messages }) {
+export function CollectWizard({ t, lang = "mr" }: { t: Messages; lang?: "mr" | "en" }) {
   const c = t.collect;
+  const t4 = getPart4Messages(lang);
   const { operator, deviceId, online, syncNow, refreshData, refreshing, getSlips } = useOffline();
 
   const [step, setStep] = useState<WizardStep>("farmer");
@@ -57,8 +66,6 @@ export function CollectWizard({ t }: { t: Messages }) {
   const [stepError, setStepError] = useState<StepError | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CachedMember[]>([]);
-  const [rates, setRates] = useState<Record<string, string>>({});
-  const [rateDate, setRateDate] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState<LocalEntry | null>(null);
@@ -80,22 +87,26 @@ export function CollectWizard({ t }: { t: Messages }) {
   }, [query, farmersCached]);
 
   // Today's published rates from this phone's copy. The date is the server-corrected one.
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const db = getLocalDb();
-      const date = await businessDate(db);
-      const rows = await listCachedRates(db, date);
-      if (cancelled) return;
-      setRateDate(date);
-      setRates(Object.fromEntries(rows.map((r) => [`${r.crop}|${r.grade}`, r.ratePerQuintal])));
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [step, farmersCached]);
+  // Live: a download that lands while the wizard is open updates this, but never the locked price.
+  const liveRates = useLocalQuery<{ date: string; rows: CachedPrice[] } | null>(async () => {
+    const db = getLocalDb();
+    const date = await businessDate(db);
+    return { date, rows: await listCachedRates(db, date) };
+  }, null);
+  const rateDate = liveRates?.date ?? "";
+  const prices = useMemo(
+    () => Object.fromEntries((liveRates?.rows ?? []).map((r) => [`${r.crop}|${r.grade}`, r] as const)) as Record<string, CachedPrice>,
+    [liveRates],
+  );
 
-  const rate = draft.crop && draft.grade ? (rates[`${draft.crop}|${draft.grade}`] ?? null) : null;
+  // The entry is priced from the locked snapshot, not from whatever the phone holds now.
+  const rate = draft.snap?.ratePerQuintal ?? null;
+  const livePrice = draft.crop && draft.grade ? (prices[`${draft.crop}|${draft.grade}`] ?? null) : null;
+  const priceChanged =
+    draft.snap !== null &&
+    livePrice !== null &&
+    (livePrice.ratePerQuintal !== draft.snap.ratePerQuintal || livePrice.version !== draft.snap.version || livePrice.priceDate !== draft.snap.priceDate);
+  const snapDateMoved = draft.snap !== null && rateDate !== "" && draft.snap.priceDate !== rateDate;
   const calc = useMemo(() => {
     if (!draft.crop || !rate || validateGross(draft.gross) || validateTare(draft.tare, draft.gross) || validateMoisture(draft.moisture, draft.crop)) {
       return null;
@@ -113,6 +124,11 @@ export function CollectWizard({ t }: { t: Messages }) {
   const index = WIZARD_STEPS.indexOf(step);
   const set = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setDraft((d) => ({ ...d, [key]: value }));
+    setStepError(null);
+  };
+
+  const chooseGrade = (grade: Grade) => {
+    setDraft((d) => ({ ...d, grade, snap: (d.crop ? prices[`${d.crop}|${grade}`] : null) ?? null }));
     setStepError(null);
   };
 
@@ -151,6 +167,9 @@ export function CollectWizard({ t }: { t: Messages }) {
       tareKg: toFixedText(draft.tare, 1),
       moisturePct: toFixedText(draft.moisture, 1),
       ratePerQuintal: rate,
+      // Which published price this is: its effective date and version.
+      rateDate: draft.snap?.priceDate,
+      ...(draft.snap?.version ? { rateVersion: draft.snap.version } : {}),
     };
     const context = { ...operator, deviceId, clientId: draftId.current };
     try {
@@ -186,7 +205,7 @@ export function CollectWizard({ t }: { t: Messages }) {
     setStep("farmer");
   }
 
-  if (saved) return <SavedScreen entry={saved} t={t} onAgain={startAgain} />;
+  if (saved) return <SavedScreen entry={saved} member={draft.farmer ?? undefined} t={t} t4={t4} onAgain={startAgain} />;
 
   const stepLabel = c.stepOf.replace("{n}", String(index + 1)).replace("{total}", String(WIZARD_STEPS.length));
   const notEligible = draft.farmer && draft.crop && draft.farmer.crops.length > 0 && !draft.farmer.crops.includes(draft.crop);
@@ -270,7 +289,7 @@ export function CollectWizard({ t }: { t: Messages }) {
                 key={crop}
                 type="button"
                 aria-pressed={draft.crop === crop}
-                onClick={() => setDraft((d) => ({ ...d, crop, grade: null }))}
+                onClick={() => setDraft((d) => ({ ...d, crop, grade: null, snap: null }))}
                 className={`h-24 rounded-xl border-2 text-2xl font-bold ${draft.crop === crop ? "border-primary bg-primary-soft text-primary" : "border-line bg-surface"}`}
               >
                 {t.crops[crop]}
@@ -297,14 +316,14 @@ export function CollectWizard({ t }: { t: Messages }) {
             <p className="mb-2 text-lg font-semibold">{c.selectGrade}</p>
             <div className="grid grid-cols-3 gap-3">
               {GRADES.map((grade) => {
-                const r = rates[`${draft.crop}|${grade}`];
+                const r = prices[`${draft.crop}|${grade}`]?.ratePerQuintal;
                 return (
                   <button
                     key={grade}
                     type="button"
                     disabled={!r}
                     aria-pressed={draft.grade === grade}
-                    onClick={() => set("grade", grade)}
+                    onClick={() => chooseGrade(grade)}
                     className={`rounded-xl border-2 py-3 disabled:opacity-40 ${draft.grade === grade ? "border-primary bg-primary-soft text-primary" : "border-line bg-surface"}`}
                   >
                     <span className="block text-3xl font-bold">{grade}</span>
@@ -315,7 +334,7 @@ export function CollectWizard({ t }: { t: Messages }) {
             </div>
           </div>
 
-          {Object.keys(rates).length === 0 || (draft.grade && !rate) ? (
+          {Object.keys(prices).length === 0 || (draft.grade && !rate) ? (
             <Notice tone="error">
               <p className="font-semibold">{c.noRateTitle}</p>
               <p className="mt-1">{c.noRateBody}</p>
@@ -327,11 +346,15 @@ export function CollectWizard({ t }: { t: Messages }) {
             </Notice>
           ) : null}
 
+          {priceChanged && livePrice && <PriceChangedNotice t4={t4} snap={draft.snap!} live={livePrice} onUse={() => setDraft((d) => ({ ...d, snap: livePrice }))} />}
+
+          {draft.snap && <PriceStatusLine price={draft.snap} t={{ ...t4.wizardPrice, sync: t4.priceStatus }} />}
+
           {rate && calc && (
             <Card>
               <CardContent className="pt-4">
                 <dl data-testid="calc-preview">
-                  <Row label={`${c.rateToday} (${rateDate})`} value={`${formatInr(rate)} ${c.perQuintal}`} />
+                  <Row label={`${c.rateToday} (${draft.snap?.priceDate ?? rateDate})`} value={`${formatInr(rate)} ${c.perQuintal}`} />
                   <Row label={c.weighed} value={`${formatKg(calc.weighedKg)} ${c.kg}`} />
                   <Row label={c.deduction} value={`${calc.moistureDeductionPct}%`} />
                   <Row label={c.netWeight} value={`${formatKg(calc.netKg)} ${c.kg}`} strong />
@@ -346,6 +369,8 @@ export function CollectWizard({ t }: { t: Messages }) {
       {step === "review" && draft.farmer && draft.crop && draft.grade && rate && calc && (
         <div className="space-y-4">
           <p className="text-base text-muted">{c.reviewIntro}</p>
+          {priceChanged && livePrice && <PriceChangedNotice t4={t4} snap={draft.snap!} live={livePrice} onUse={() => setDraft((d) => ({ ...d, snap: livePrice }))} />}
+          {snapDateMoved && !priceChanged && <Notice tone="error">{c.noRateBody}</Notice>}
           <Card>
             <CardContent className="pt-4">
               <dl data-testid="review-summary">
@@ -356,6 +381,7 @@ export function CollectWizard({ t }: { t: Messages }) {
                 <Row label={c.tare} value={`${formatKg(toFixedText(draft.tare, 1))} ${c.kg}`} />
                 <Row label={c.moisture} value={`${toFixedText(draft.moisture, 1)}%`} />
                 <Row label={c.rate} value={`${formatInr(rate)} ${c.perQuintal}`} />
+                <Row label={t4.wizardPrice.effective} value={<span data-testid="review-rate-date">{draft.snap?.priceDate}{draft.snap?.version ? ` · ${t4.wizardPrice.version} ${draft.snap.version}` : ""}</span>} />
                 <Row label={c.netWeight} value={`${formatKg(calc.netKg)} ${c.kg}`} strong />
                 <Row label={c.amount} value={formatInr(calc.amount)} strong />
               </dl>
@@ -383,7 +409,7 @@ export function CollectWizard({ t }: { t: Messages }) {
             <ArrowRight className="h-5 w-5" aria-hidden="true" />
           </Button>
         ) : (
-          <Button size="lg" onClick={() => void save()} disabled={saving || !calc} className="flex-[2]" data-testid="save-entry">
+          <Button size="lg" onClick={() => void save()} disabled={saving || !calc || (snapDateMoved && !priceChanged)} className="flex-[2]" data-testid="save-entry">
             {saving ? c.saving : c.save}
           </Button>
         )}
@@ -392,7 +418,25 @@ export function CollectWizard({ t }: { t: Messages }) {
   );
 }
 
-function SavedScreen({ entry, t, onAgain }: { entry: LocalEntry; t: Messages; onAgain: () => void }) {
+function PriceChangedNotice({ t4, snap, live, onUse }: { t4: ReturnType<typeof getPart4Messages>; snap: CachedPrice; live: CachedPrice; onUse: () => void }) {
+  const w = t4.wizardPrice;
+  const body = w.changedBody
+    .replace("{new}", formatInr(live.ratePerQuintal).replace("₹", ""))
+    .replace("{newVersion}", String(live.version ?? "?"))
+    .replace("{old}", formatInr(snap.ratePerQuintal).replace("₹", ""))
+    .replace("{oldVersion}", String(snap.version ?? "?"));
+  return (
+    <Notice tone="warn">
+      <div data-testid="price-changed">
+        <p className="font-semibold">{w.changedTitle}</p>
+        <p className="mt-1">{body}</p>
+        <Button size="sm" variant="secondary" className="mt-3" onClick={onUse} data-testid="use-new-price">{w.useNew}</Button>
+      </div>
+    </Notice>
+  );
+}
+
+function SavedScreen({ entry, member, t, t4, onAgain }: { entry: LocalEntry; member: CachedMember | undefined; t: Messages; t4: ReturnType<typeof getPart4Messages>; onAgain: () => void }) {
   const c = t.collect;
   const { online } = useOffline();
   // Read the live row, so this flips to "synced" only when the server has confirmed it.
@@ -432,7 +476,9 @@ function SavedScreen({ entry, t, onAgain }: { entry: LocalEntry; t: Messages; on
         </Notice>
       )}
 
-      <div className="flex flex-col gap-3 sm:flex-row">
+      <SlipPanel entry={row} member={member} t={t4} />
+
+      <div className="no-print flex flex-col gap-3 sm:flex-row">
         <Button size="lg" onClick={onAgain} className="flex-1" data-testid="new-entry">{c.newEntry}</Button>
         <Button asChild size="lg" variant="secondary" className="flex-1">
           <Link href="/procurement">{c.viewEntries}</Link>

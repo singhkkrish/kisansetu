@@ -94,6 +94,8 @@ export interface EntryDetail {
   netKg: string;
   ratePerQuintal: string;
   amount: string;
+  rateDate: string | null;
+  rateVersion: number | null;
   deviceRecordedAt: string;
   serverReceivedAt: string;
   clockOffsetMs: number | null;
@@ -155,6 +157,8 @@ export async function getEntryDetail(supabase: SupabaseClient, idOrClientId: str
     netKg: Number(r.net_kg).toFixed(1),
     ratePerQuintal: Number(r.rate_per_quintal).toFixed(2),
     amount: Number(r.amount).toFixed(2),
+    rateDate: (r.rate_price_date as string | null) ?? null,
+    rateVersion: (r.rate_version as number | null) ?? null,
     deviceRecordedAt: r.device_recorded_at as string,
     serverReceivedAt: r.server_received_at as string,
     clockOffsetMs: (r.device_clock_offset_ms as number | null) ?? null,

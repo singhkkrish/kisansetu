@@ -9,6 +9,10 @@ import { can } from "@/lib/auth/permissions";
 import { requireAnyPermission } from "@/lib/auth/page-guard";
 import { formatDisplayDate, formatInr, formatKg } from "@/lib/calculations/format";
 import { getMessages } from "@/lib/i18n/messages";
+import { SlipCard } from "@/components/slip/slip-card";
+import { getPart4Messages } from "@/lib/i18n/part4-messages";
+import { SMS_COLUMNS, toSmsRecord } from "@/lib/services/sms-repository";
+import { buildSlip } from "@/lib/slip/slip";
 import { getEntryDetail } from "@/lib/services/procurement-view";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,8 +38,16 @@ export default async function EntryDetailPage({ params }: { params: Promise<{ id
   const t = getMessages(session.profile.preferred_lang);
   const p = t.procurement;
 
-  const entry = await getEntryDetail(await createClient(), id);
+  const supabase = await createClient();
+  const entry = await getEntryDetail(supabase, id);
   if (!entry) notFound();
+  const t4 = getPart4Messages(session.profile.preferred_lang);
+  const { data: smsRow } = await supabase
+    .from("sms_messages")
+    .select(SMS_COLUMNS)
+    .eq("entry_id", entry.id)
+    .maybeSingle();
+  const sms = smsRow ? toSmsRecord(smsRow as Record<string, unknown>) : null;
 
   const manager = can(session.profile.role, "procurement:approve");
   const locked = entry.paymentStatus === "in_run" || entry.paymentStatus === "paid";
@@ -101,6 +113,59 @@ export default async function EntryDetailPage({ params }: { params: Promise<{ id
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader><CardTitle>{t4.slip.forFarmer}</CardTitle></CardHeader>
+        <CardContent>
+          <SlipCard
+            lang="both"
+            model={buildSlip({
+              slipNo: entry.slipNo,
+              farmerName: entry.farmerName,
+              farmerCode: entry.farmerCode,
+              village: entry.village,
+              centreName: entry.centreName,
+              centreCode: entry.centreCode,
+              crop: entry.crop,
+              grade: entry.grade,
+              grossKg: entry.grossKg,
+              tareKg: entry.tareKg,
+              moisturePct: entry.moisturePct,
+              ratePerQuintal: entry.ratePerQuintal,
+              netKg: entry.netKg,
+              amount: entry.amount,
+              rateDate: entry.rateDate,
+              rateVersion: entry.rateVersion,
+              recordedAt: entry.deviceRecordedAt,
+              serverReceivedAt: entry.serverReceivedAt,
+              paymentStatus: entry.paymentStatus,
+            })}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>{t4.sms.managerTitle}</CardTitle></CardHeader>
+        <CardContent data-testid="manager-sms">
+          {sms ? (
+            <dl className="space-y-3">
+              <Item label={t4.sms.statusTitle}>
+                <span data-testid="manager-sms-status" data-status={sms.status}>{t4.sms[sms.status === "sending" ? "sending" : sms.status]}</span>
+                {sms.failureReason && <span className="block text-sm font-normal text-muted">{t4.sms.reasons[sms.failureReason] ?? sms.failureReason}</span>}
+              </Item>
+              <Item label={t4.sms.to}>{sms.recipientMasked}</Item>
+              <div>
+                <dt className="text-sm text-muted">{t4.sms.preview}</dt>
+                <dd lang={sms.language} className="mt-0.5 whitespace-pre-wrap rounded-lg border border-line bg-primary-soft p-3 text-base">{sms.body}</dd>
+              </div>
+              <Item label={t4.sms.recorded}>{stamp(sms.statusAt)}</Item>
+              <Item label={t4.sms.attempts}>{sms.attempts}</Item>
+            </dl>
+          ) : (
+            <p className="text-muted">{t4.sms.managerNone}</p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle>{p.audit}</CardTitle></CardHeader>

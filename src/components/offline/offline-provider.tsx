@@ -18,6 +18,8 @@ export interface OperatorInfo {
   operatorId: string;
   centreId: string;
   centreCode: string;
+  /** For the slip. Optional so older callers keep working. */
+  centreName?: string;
 }
 
 export type SyncNotice =

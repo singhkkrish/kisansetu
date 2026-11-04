@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SyncStatus } from "@/components/offline/sync-status";
+import { PriceStatusCard } from "@/components/prices/price-status";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Notice } from "@/components/ui/notice";
 import { formatInr, istDate } from "@/lib/calculations/format";
 import { getMessages } from "@/lib/i18n/messages";
+import { getPart4Messages } from "@/lib/i18n/part4-messages";
 import { getSession } from "@/lib/services/session";
 import { createClient } from "@/lib/supabase/server";
 import type { Crop } from "@/types/domain";
@@ -20,6 +23,7 @@ export default async function DashboardPage({
   if (!session) redirect("/login");
 
   const t = getMessages(session.profile.preferred_lang);
+  const t4 = getPart4Messages(session.profile.preferred_lang);
   // requirePermission() sends people here with ?denied=1 when a page is not theirs to open.
   const denied = (await searchParams).denied !== undefined;
   const supabase = await createClient();
@@ -57,38 +61,46 @@ export default async function DashboardPage({
       )}
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>
-              {t.dashboard.todaysPrices}
-              <span className="ml-2 text-sm font-normal text-muted">{today}</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {priceError ? (
-              <Notice tone="error">{t.dashboard.priceLoadError}</Notice>
-            ) : !prices || prices.length === 0 ? (
-              <p className="text-muted">{t.dashboard.noPricesToday}</p>
-            ) : (
-              <ul className="divide-y divide-line">
-                {prices.map((p) => (
-                  <li key={`${p.crop}-${p.grade}`} className="flex items-baseline justify-between py-3">
-                    <span className="text-base font-semibold">
-                      {t.crops[p.crop as Crop]}{" "}
-                      <span className="font-normal text-muted">
-                        {t.dashboard.grade} {p.grade}
+        {isManager ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {t.dashboard.todaysPrices}
+                <span className="ml-2 text-sm font-normal text-muted">{today}</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {priceError ? (
+                <Notice tone="error">{t.dashboard.priceLoadError}</Notice>
+              ) : !prices || prices.length === 0 ? (
+                <p className="text-muted">{t.dashboard.noPricesToday}</p>
+              ) : (
+                <ul className="divide-y divide-line">
+                  {prices.map((p) => (
+                    <li key={`${p.crop}-${p.grade}`} className="flex items-baseline justify-between py-3">
+                      <span className="text-base font-semibold">
+                        {t.crops[p.crop as Crop]}{" "}
+                        <span className="font-normal text-muted">
+                          {t.dashboard.grade} {p.grade}
+                        </span>
                       </span>
-                    </span>
-                    <span className="text-right">
-                      <span className="text-2xl font-bold tabular-nums">{formatInr(String(p.rate_per_quintal))}</span>
-                      <span className="block text-xs text-muted">{t.dashboard.perQuintal}</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+                      <span className="text-right">
+                        <span className="text-2xl font-bold tabular-nums">{formatInr(String(p.rate_per_quintal))}</span>
+                        <span className="block text-xs text-muted">{t.dashboard.perQuintal}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <Link href="/prices" className="mt-3 inline-block text-sm font-semibold text-primary underline">
+                {t4.prices.title}
+              </Link>
+            </CardContent>
+          </Card>
+        ) : (
+          // Operators read the rates from their own phone, so this works offline and shows how fresh they are.
+          <PriceStatusCard t={t} t4={t4} crops={t.crops} />
+        )}
 
         {!isManager && <SyncStatus t={t.sync} />}
       </div>

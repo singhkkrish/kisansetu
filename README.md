@@ -262,6 +262,36 @@ npm run build && npm start        # http://localhost:3000
 Sign-out removes the downloaded farmer list and cached pages from the phone but
 keeps any entries that have not synced yet.
 
+## Part 4: price board, slips and SMS
+
+Apply `supabase/migrations/20261104000007_price_board_and_sms.sql` after the earlier
+migrations. Optional environment variables for the mock SMS service:
+`SMS_MOCK_RECEIPT_DELAY_MS` (default 2000) and `SMS_ALLOW_SIMULATION`
+(allows the "simulate failed delivery" testing option).
+
+Manual testing:
+
+1. Sign in as an office manager and open **Prices**. Choose a date from today to
+   14 days ahead, type rates for Soybean and Tur grades, press **Save drafts**.
+   Drafts are invisible to operators.
+2. Press **Review and publish**, tick the confirmation box and publish. The slot
+   shows a locked "Published" state with version, who and when.
+3. Type a different rate for a published slot. A reason is required; publishing it
+   creates version 2 and marks version 1 superseded. Open **Price history** to see
+   both versions and the audit trail.
+4. As a centre operator, open the dashboard: the price card shows the effective
+   date and sync state. Go offline (DevTools, Network, Offline) and record an entry;
+   it uses the cached price and stores a snapshot of it.
+5. Publish a new price as the manager, sync the operator phone, then start another
+   entry: a "new price available" notice appears but an entry already in progress
+   keeps its snapshot until the operator chooses to use the new price.
+6. After saving an entry, check the slip (Marathi and English), print it, then
+   preview and send the SMS. Offline it is queued and shows "not sent yet";
+   after sync it moves to Sent, then Delivered only when the mock confirms it.
+   Tick "simulate failed delivery" to see a failure and use **Send again**.
+7. As the manager, open an entry under **Procurement** to see the slip and the
+   recorded SMS (masked number, message, status, time).
+
 ## What is done
 
 - Project setup and tooling
@@ -277,10 +307,13 @@ keeps any entries that have not synced yet.
 - Audit trail, immutable purchase facts, manager review of held entries
 - Service worker so the app opens with no network
 - Marathi SMS slip text
+- Daily price board: versioned prices, publish confirmation, history with audit trail
+- Rate snapshot stored on every procurement entry; later prices never change it
+- Bilingual (Marathi + English) digital slip, printable
+- Mock SMS service with preview, offline queue and honest delivery status
 
 ## What comes next
 
-- Daily price board: set and publish prices
 - Payment run: grouping, bank bulk file, status per farmer
 - Scale and moisture meter photo reading, anomaly review queue
 - Stock, dispatch and weight-loss tracking

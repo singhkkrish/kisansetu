@@ -12,7 +12,7 @@ export default async function CollectPage() {
   return (
     <div className="space-y-5">
       <SyncBar t={t.sync} />
-      <CollectWizard t={t} />
+      <CollectWizard t={t} lang={session.profile.preferred_lang} />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { AppHeader } from "@/components/layout/app-header";
 import { OfflineProvider } from "@/components/offline/offline-provider";
 import { getMessages } from "@/lib/i18n/messages";
+import { getPart4Messages } from "@/lib/i18n/part4-messages";
 import { getSession } from "@/lib/services/session";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -16,7 +17,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const shell = (
     <div className="min-h-dvh">
-      <AppHeader t={t} userName={session.profile.full_name} roleLabel={roleLabel} role={session.profile.role} />
+      <AppHeader t={t} userName={session.profile.full_name} roleLabel={roleLabel} role={session.profile.role} pricesLabel={getPart4Messages(session.profile.preferred_lang).nav.prices} />
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">{children}</main>
     </div>
   );
@@ -25,7 +26,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
   if (session.profile.role === "centre_operator" && session.centre) {
     return (
       <OfflineProvider
-        operator={{ operatorId: session.userId, centreId: session.centre.id, centreCode: session.centre.code }}
+        operator={{
+          operatorId: session.userId,
+          centreId: session.centre.id,
+          centreCode: session.centre.code,
+          centreName: session.centre.name,
+        }}
       >
         {shell}
       </OfflineProvider>

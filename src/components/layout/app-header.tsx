@@ -10,9 +10,11 @@ interface AppHeaderProps {
   userName: string;
   roleLabel: string;
   role: UserRole;
+  /** Label of the price board link, shown to office managers. */
+  pricesLabel?: string;
 }
 
-export function AppHeader({ t, userName, roleLabel, role }: AppHeaderProps) {
+export function AppHeader({ t, userName, roleLabel, role, pricesLabel = "Prices" }: AppHeaderProps) {
   const items: NavItem[] =
     role === "centre_operator"
       ? [
@@ -25,6 +27,7 @@ export function AppHeader({ t, userName, roleLabel, role }: AppHeaderProps) {
           { href: "/dashboard", label: t.nav.dashboard },
           { href: "/members", label: t.nav.members },
           { href: "/procurement", label: t.nav.entries },
+          { href: "/prices", label: pricesLabel },
         ];
 
   return (
