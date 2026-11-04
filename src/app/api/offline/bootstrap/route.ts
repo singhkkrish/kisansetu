@@ -68,7 +68,7 @@ export async function GET(request: Request) {
     const since = istDate(new Date(Date.now() - PRICE_HISTORY_DAYS * 86_400_000).toISOString());
     const { data: prices, error: priceError } = await supabase
       .from("daily_prices")
-      .select("price_date, crop, grade, rate_per_quintal")
+      .select("price_date, crop, grade, rate_per_quintal, version, published_at")
       .gte("price_date", since);
     if (priceError) {
       console.error("bootstrap prices failed", priceError);
@@ -79,6 +79,8 @@ export async function GET(request: Request) {
       crop: p.crop as Crop,
       grade: p.grade as Grade,
       ratePerQuintal: Number(p.rate_per_quintal).toFixed(2),
+      version: Number(p.version),
+      publishedAt: (p.published_at as string | null) ?? null,
     }));
   }
 

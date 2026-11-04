@@ -11,6 +11,7 @@ import {
 } from "@/lib/offline/queue";
 import { downloadReferenceData, referenceDataAge } from "@/lib/offline/reference-data";
 import { markSyncSucceeded } from "@/lib/offline/clock";
+import { processSmsQueue } from "@/lib/offline/sms-queue";
 import { retryFailedEntries, syncPending, type SyncSummary } from "@/lib/offline/sync";
 
 export interface OperatorInfo {
@@ -37,6 +38,8 @@ interface OfflineContextValue {
   retryFailed: () => Promise<void>;
   refreshData: () => Promise<void>;
   getSlips: () => Promise<boolean>;
+  /** Sends queued slip SMS messages whose entries the server has confirmed. */
+  processSms: () => Promise<void>;
 }
 
 const OfflineContext = createContext<OfflineContextValue | null>(null);
@@ -107,6 +110,15 @@ export function OfflineProvider({ operator, children }: { operator: OperatorInfo
     }
   }, [refreshing]);
 
+  const processSms = useCallback(async () => {
+    if (signedOut.current || !navigator.onLine) return;
+    try {
+      await processSmsQueue(getLocalDb(), { operatorId: operator.operatorId });
+    } catch {
+      // A failed pass leaves every message queued; the next cycle tries again.
+    }
+  }, [operator.operatorId]);
+
   const syncNow = useCallback(async () => {
     if (!deviceId || busy.current || signedOut.current) return;
     busy.current = true;
@@ -115,11 +127,13 @@ export function OfflineProvider({ operator, children }: { operator: OperatorInfo
       const summary = await syncPending(getLocalDb(), { deviceId, operatorId: operator.operatorId });
       if (summary.stoppedBecause === "signed_out") signedOut.current = true;
       setNotice({ kind: "result", summary });
+      // Messages wait for their entry to sync; now is when they can go.
+      await processSms();
     } finally {
       busy.current = false;
       setSyncing(false);
     }
-  }, [deviceId, operator.operatorId]);
+  }, [deviceId, operator.operatorId, processSms]);
 
   const retryFailed = useCallback(async () => {
     await retryFailedEntries(getLocalDb(), operator.operatorId);
@@ -142,8 +156,11 @@ export function OfflineProvider({ operator, children }: { operator: OperatorInfo
     const mine = pending.filter((e) => e.operatorId === operator.operatorId);
     if (mine.length > 0 && mine.some((e) => !e.nextRetryAt || e.nextRetryAt <= Date.now())) {
       await syncNow();
+    } else {
+      // Nothing to sync, but a message may still be queued or awaiting its receipt.
+      await processSms();
     }
-  }, [deviceId, getSlips, operator.operatorId, refreshData, refreshing, syncNow]);
+  }, [deviceId, getSlips, operator.operatorId, processSms, refreshData, refreshing, syncNow]);
 
   const cycleRef = useRef(cycle);
   useEffect(() => {
@@ -165,8 +182,8 @@ export function OfflineProvider({ operator, children }: { operator: OperatorInfo
   }, [deviceId]);
 
   const value = useMemo<OfflineContextValue>(
-    () => ({ operator, deviceId, online, syncing, refreshing, notice, syncNow, retryFailed, refreshData, getSlips }),
-    [operator, deviceId, online, syncing, refreshing, notice, syncNow, retryFailed, refreshData, getSlips],
+    () => ({ operator, deviceId, online, syncing, refreshing, notice, syncNow, retryFailed, refreshData, getSlips, processSms }),
+    [operator, deviceId, online, syncing, refreshing, notice, syncNow, retryFailed, refreshData, getSlips, processSms],
   );
 
   return <OfflineContext.Provider value={value}>{children}</OfflineContext.Provider>;

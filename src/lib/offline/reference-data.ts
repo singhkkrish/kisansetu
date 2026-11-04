@@ -24,7 +24,14 @@ export interface BootstrapMember {
 export interface BootstrapPage {
   members: BootstrapMember[];
   /** Present on the first page only. */
-  prices?: { priceDate: string; crop: Crop; grade: Grade; ratePerQuintal: string }[];
+  prices?: {
+    priceDate: string;
+    crop: Crop;
+    grade: Grade;
+    ratePerQuintal: string;
+    version?: number;
+    publishedAt?: string | null;
+  }[];
   nextCursor: string | null;
   serverTime: string;
 }

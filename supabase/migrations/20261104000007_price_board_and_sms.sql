@@ -46,7 +46,7 @@ create table public.price_audit_logs (
   id uuid primary key default gen_random_uuid(),
   -- No foreign key: the record of a deleted draft must outlive the draft.
   price_version_id uuid not null,
-  actor_id uuid,
+  actor_id uuid references public.profiles (id),
   action text not null check (action in ('created', 'edited', 'draft_deleted', 'published', 'superseded')),
   old_values jsonb,
   new_values jsonb,
@@ -339,10 +339,65 @@ begin
 end;
 $$;
 
+-- Saves a whole day's board in one transaction: creates a draft for each row,
+-- updates an existing draft, and skips rows that change nothing.
+create or replace function public.save_price_drafts(p_date date, p_rows jsonb, p_reason text default null)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row jsonb;
+  v_crop crop_type;
+  v_grade grade_type;
+  v_rate numeric;
+  v_draft price_versions%rowtype;
+  v_live numeric;
+  v_created integer := 0;
+  v_updated integer := 0;
+  v_unchanged integer := 0;
+begin
+  perform require_manager();
+  if jsonb_typeof(p_rows) is distinct from 'array' or jsonb_array_length(p_rows) = 0 then
+    raise exception 'enter at least one rate' using errcode = '22023';
+  end if;
+
+  for v_row in select * from jsonb_array_elements(p_rows) loop
+    v_crop := (v_row ->> 'crop')::crop_type;
+    v_grade := (v_row ->> 'grade')::grade_type;
+    v_rate := (v_row ->> 'rate')::numeric;
+
+    select * into v_draft from price_versions
+     where price_date = p_date and crop = v_crop and grade = v_grade and status = 'draft';
+    select rate_per_quintal into v_live from price_versions
+     where price_date = p_date and crop = v_crop and grade = v_grade and status = 'published';
+
+    if v_draft.id is not null then
+      if v_draft.rate_per_quintal = v_rate then
+        v_unchanged := v_unchanged + 1;
+      else
+        perform update_price_draft(v_draft.id, v_rate);
+        v_updated := v_updated + 1;
+      end if;
+    elsif v_live is not null and v_live = v_rate then
+      v_unchanged := v_unchanged + 1;
+    else
+      perform create_price_draft(p_date, v_crop, v_grade, v_rate, p_reason);
+      v_created := v_created + 1;
+    end if;
+  end loop;
+
+  return jsonb_build_object('created', v_created, 'updated', v_updated, 'unchanged', v_unchanged);
+end;
+$$;
+
 revoke all on function public.create_price_draft(date, public.crop_type, public.grade_type, numeric, text) from public, anon;
 revoke all on function public.update_price_draft(uuid, numeric) from public, anon;
 revoke all on function public.delete_price_draft(uuid) from public, anon;
 revoke all on function public.publish_prices(uuid[]) from public, anon;
+revoke all on function public.save_price_drafts(date, jsonb, text) from public, anon;
+grant execute on function public.save_price_drafts(date, jsonb, text) to authenticated;
 grant execute on function public.create_price_draft(date, public.crop_type, public.grade_type, numeric, text) to authenticated;
 grant execute on function public.update_price_draft(uuid, numeric) to authenticated;
 grant execute on function public.delete_price_draft(uuid) to authenticated;

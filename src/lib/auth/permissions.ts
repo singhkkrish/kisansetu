@@ -20,6 +20,8 @@ export const PERMISSIONS = [
   "payment_runs:create",
   "payment_runs:approve",
   "dashboard:financial",
+  "sms:send",
+  "sms:read",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -35,6 +37,8 @@ const GRANTS: Record<UserRole, readonly Permission[]> = {
     "prices:read",
     "procurement:create",
     "procurement:read_own_centre",
+    "sms:send",
+    "sms:read",
   ],
   office_manager: [
     "members:read",
@@ -48,6 +52,7 @@ const GRANTS: Record<UserRole, readonly Permission[]> = {
     "payment_runs:create",
     "payment_runs:approve",
     "dashboard:financial",
+    "sms:read",
   ],
 };
 

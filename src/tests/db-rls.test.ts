@@ -635,6 +635,33 @@ describe("price board", () => {
     });
   });
 
+  describe("save_price_drafts", () => {
+    const save = (date: string, rows: unknown[], reason: string | null = null) =>
+      asUser(MANAGER, async () => (await db.query<{ r: Record<string, number> }>(
+        "select save_price_drafts(" + date + ", $1::jsonb, $2) as r", [JSON.stringify(rows), reason])).rows[0].r);
+
+    it("creates, updates and skips unchanged rows in one go", async () => {
+      const date = `${TODAY} + 13`;
+      expect(await save(date, [{ crop: "soybean", grade: "B", rate: "4500" }, { crop: "tur", grade: "B", rate: "6800" }])).toEqual({ created: 2, updated: 0, unchanged: 0 });
+      expect(await save(date, [{ crop: "soybean", grade: "B", rate: "4500" }, { crop: "tur", grade: "B", rate: "6810" }])).toEqual({ created: 0, updated: 1, unchanged: 1 });
+    });
+
+    it("saves nothing at all if one row is invalid", async () => {
+      const date = `${TODAY} + 11`;
+      const message = await asUser(MANAGER, () => failsWith(db.query(
+        "select save_price_drafts(" + date + ", $1::jsonb)", [JSON.stringify([{ crop: "soybean", grade: "B", rate: "4500" }, { crop: "tur", grade: "B", rate: "-1" }])])));
+      expect(message).toMatch(/rate must be/i);
+      const left = await db.query("select 1 from price_versions where price_date = " + date + " and grade = 'B'");
+      expect(left.rows).toEqual([]);
+    });
+
+    it("refuses operators", async () => {
+      const message = await asUser(OPERATOR_C07, () => failsWith(db.query(
+        `select save_price_drafts(${TODAY}, '[{"crop":"tur","grade":"B","rate":"1"}]'::jsonb)`)));
+      expect(message).toMatch(/only office managers/i);
+    });
+  });
+
   describe("publishing", () => {
     it("makes the rate live for every centre and records who published it and when", async () => {
       const id = await draft(`${TODAY} + 8`, "soybean", "C", 4410);

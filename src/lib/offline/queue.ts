@@ -137,6 +137,8 @@ export async function recordProcurement(
       deviceRecordedAt: now.toISOString(),
       prevHash,
       clockOffsetMs: offset ? Math.round(offset.offsetMs) : null,
+      rateDate: input.rateDate ?? null,
+      rateVersion: input.rateVersion ?? null,
     };
     const payloadHash = await computePayloadHash(unsigned);
 

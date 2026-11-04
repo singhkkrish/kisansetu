@@ -31,6 +31,9 @@ export const procurementInputSchema = z
     tareKg: decimalString("Tare weight", 1),
     moisturePct: decimalString("Moisture", 1),
     ratePerQuintal: decimalString("Rate", 2),
+    /** Which published price this rate came from: its effective date and version. */
+    rateDate: z.iso.date().optional(),
+    rateVersion: z.number().int().positive().optional(),
   })
   .superRefine((value, ctx) => {
     try {
@@ -69,6 +72,13 @@ export const entryRecordSchema = z
      * with the server. Advisory: the server keeps its own receive time.
      */
     clockOffsetMs: z.number().int().min(-86_400_000).max(86_400_000).nullish(),
+    /**
+     * Snapshot of the published price this entry used. Not part of the hash: the
+     * rate itself is, and the server checks that this date and version really
+     * carried that rate.
+     */
+    rateDate: z.iso.date().nullish(),
+    rateVersion: z.number().int().positive().nullish(),
     payloadHash: sha256,
   })
   .superRefine((value, ctx) => {

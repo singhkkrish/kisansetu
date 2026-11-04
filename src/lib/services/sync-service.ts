@@ -34,6 +34,8 @@ export interface EntryRow {
   device_id: string;
   device_recorded_at: string;
   device_clock_offset_ms: number | null;
+  rate_price_date: string | null;
+  rate_version: number | null;
   payload_hash: string;
   prev_hash: string | null;
   sync_status: "synced";
@@ -190,6 +192,8 @@ async function processOne(
     device_id: entry.deviceId,
     device_recorded_at: entry.deviceRecordedAt,
     device_clock_offset_ms: entry.clockOffsetMs ?? null,
+    rate_price_date: entry.rateDate ?? null,
+    rate_version: entry.rateVersion ?? null,
     payload_hash: entry.payloadHash,
     prev_hash: entry.prevHash,
     sync_status: "synced",
