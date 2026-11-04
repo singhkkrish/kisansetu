@@ -59,9 +59,18 @@ describe("role permissions", () => {
     expect(withBankAccess).toEqual(["office_manager"]);
   });
 
-  it("gives the operator a strict subset of what the manager can do, plus recording purchases", () => {
+  it("gives the operator a strict subset of what the manager can do, plus recording purchases and sending slip SMS", () => {
     const operatorOnly = permissionsFor("centre_operator").filter((p) => !can("office_manager", p));
-    expect(operatorOnly.sort()).toEqual(["procurement:create", "procurement:read_own_centre"]);
+    expect(operatorOnly.sort()).toEqual(["procurement:create", "procurement:read_own_centre", "sms:send"]);
+  });
+
+  it("lets only operators send SMS, and both roles read the SMS log; only managers set prices", () => {
+    expect(can("centre_operator", "sms:send")).toBe(true);
+    expect(can("office_manager", "sms:send")).toBe(false);
+    expect(can("centre_operator", "sms:read")).toBe(true);
+    expect(can("office_manager", "sms:read")).toBe(true);
+    expect(can("centre_operator", "prices:write")).toBe(false);
+    expect(can("office_manager", "prices:write")).toBe(true);
   });
 
   it("recognises only the two roles", () => {
