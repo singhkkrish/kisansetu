@@ -351,8 +351,7 @@ describe("centre scoping, prices and approvals", () => {
     expect(message).toMatch(/row-level security/i);
   });
 
-  it("lets a manager manage prices and approve entries", async () => {
-    await asUser(MANAGER, () => db.query("insert into daily_prices (price_date, crop, grade, rate_per_quintal) values (current_date + 1, 'tur', 'A', 7100)"));
+  it("lets a manager approve entries", async () => {
     const approved = await asUser(MANAGER, async () =>
       (await db.query("update procurement_entries set approval_status = 'approved' where slip_no = 'C07-00001' returning id")).rows);
     expect(approved).toHaveLength(1);
@@ -368,6 +367,12 @@ describe("centre scoping, prices and approvals", () => {
 });
 
 describe("server-authoritative entry integrity", () => {
+  beforeAll(async () => {
+    // The seed prices "current_date" in the database's clock; entries are judged on the IST date.
+    await db.exec(`insert into daily_prices (price_date, crop, grade, rate_per_quintal)
+                   values (public.ist_today(), 'soybean', 'A', 4850) on conflict do nothing`);
+  });
+
   async function insertAs(operatorId: string, centreId: string, slipNo: string, overrides: Record<string, string> = {}) {
     const v = {
       rate: "4850", at: "now()", offset: "null", approval: "'approved'", sync: "'pending'",
@@ -549,5 +554,320 @@ describe("sample procurement seed", () => {
     }));
     for (const e of entries) expect(await verifyPayloadHash(e)).toBe(true);
     expect(findChainBreak(entries, null)).toBe(-1);
+  });
+});
+
+describe("price board", () => {
+  const draft = (date: string, crop: string, grade: string, rate: string | number, reason: string | null = null) =>
+    asUser(MANAGER, async () =>
+      (await db.query<{ id: string }>(
+        `select create_price_draft(${date}, '${crop}', '${grade}', ${rate}, ${reason === null ? "null" : `'${reason}'`}) as id`)).rows[0].id);
+  const publish = (...ids: string[]) =>
+    asUser(MANAGER, () => db.query("select publish_prices($1::uuid[]) as n", [ids]));
+  const version = async (id: string) =>
+    (await db.query<Record<string, string | number | null>>("select * from price_versions where id = $1", [id])).rows[0];
+  const audit = async (id: string) =>
+    (await db.query<{ action: string; actor_id: string | null }>(
+      "select action, actor_id from price_audit_logs where price_version_id = $1 order by created_at, action", [id])).rows;
+  const TODAY = "public.ist_today()";
+
+  describe("effective dates", () => {
+    it("accepts today and up to 14 days ahead", async () => {
+      await draft(TODAY, "tur", "C", 6900);
+      await draft(`${TODAY} + 14`, "tur", "C", 6900);
+    });
+
+    it("refuses a past date and a date more than 14 days ahead", async () => {
+      expect(await asUser(MANAGER, () => failsWith(db.query(`select create_price_draft(${TODAY} - 1, 'tur', 'B', 6900)`)))).toMatch(/effective date/i);
+      expect(await asUser(MANAGER, () => failsWith(db.query(`select create_price_draft(${TODAY} + 15, 'tur', 'B', 6900)`)))).toMatch(/effective date/i);
+    });
+
+    it("refuses to publish a draft whose date has passed", async () => {
+      const { rows } = await db.query<{ id: string }>(
+        `insert into price_versions (price_date, crop, grade, version, rate_per_quintal, created_by)
+         values (${TODAY} - 3, 'tur', 'B', 1, 6000, '${MANAGER}') returning id`);
+      expect(await publish(rows[0].id).then(() => "published", (e) => e.message)).toMatch(/past date/i);
+    });
+
+    it("refuses rates that are zero, negative or have more than two decimals", async () => {
+      for (const rate of ["0", "-5", "100.555", "100000"]) {
+        const message = await asUser(MANAGER, () => failsWith(db.query(`select create_price_draft(${TODAY} + 2, 'soybean', 'C', ${rate})`)));
+        expect(message).toMatch(/rate must be/i);
+      }
+    });
+  });
+
+  describe("drafts", () => {
+    it("are visible to managers and hidden from operators", async () => {
+      const id = await draft(`${TODAY} + 3`, "soybean", "C", 4400);
+      const manager = await asUser(MANAGER, async () => (await db.query("select id from price_versions where id = $1", [id])).rows);
+      const operator = await asUser(OPERATOR_C07, async () => (await db.query("select id from price_versions where id = $1", [id])).rows);
+      expect(manager).toHaveLength(1);
+      expect(operator).toEqual([]);
+    });
+
+    it("allow only one working draft per crop, grade and date", async () => {
+      await draft(`${TODAY} + 4`, "soybean", "C", 4400);
+      const message = await asUser(MANAGER, () => failsWith(db.query(`select create_price_draft(${TODAY} + 4, 'soybean', 'C', 4500)`)));
+      expect(message).toMatch(/draft already exists/i);
+    });
+
+    it("can be edited and deleted before publishing, with both recorded", async () => {
+      const id = await draft(`${TODAY} + 5`, "tur", "C", 6800);
+      await asUser(MANAGER, () => db.query("select update_price_draft($1, 6850.50)", [id]));
+      expect(Number((await version(id)).rate_per_quintal)).toBe(6850.5);
+      await asUser(MANAGER, () => db.query("select delete_price_draft($1)", [id]));
+      expect(await version(id)).toBeUndefined();
+      expect((await audit(id)).map((a) => a.action).sort()).toEqual(["created", "draft_deleted", "edited"]);
+    });
+
+    it("can be created, edited and published by managers only", async () => {
+      const id = await draft(`${TODAY} + 6`, "tur", "C", 6800);
+      for (const sql of [
+        `select create_price_draft(${TODAY} + 7, 'tur', 'C', 6800)`,
+        `select update_price_draft('${id}', 1)`,
+        `select delete_price_draft('${id}')`,
+        `select publish_prices(array['${id}']::uuid[])`,
+      ]) {
+        expect(await asUser(OPERATOR_C07, () => failsWith(db.query(sql)))).toMatch(/only office managers/i);
+      }
+      expect((await version(id)).status).toBe("draft");
+    });
+  });
+
+  describe("publishing", () => {
+    it("makes the rate live for every centre and records who published it and when", async () => {
+      const id = await draft(`${TODAY} + 8`, "soybean", "C", 4410);
+      const published = await publish(id);
+      expect(published.rows[0]).toMatchObject({ n: 1 });
+
+      const v = await version(id);
+      expect(v).toMatchObject({ status: "published", published_by: MANAGER, created_by: MANAGER, version: 1 });
+      expect(v.published_at).toBeTruthy();
+
+      for (const uid of [OPERATOR_C07, OPERATOR_C12]) {
+        const live = await asUser(uid, async () => (await db.query<{ rate_per_quintal: string; version: number }>(
+          `select rate_per_quintal::text, version from daily_prices where price_date = ${TODAY} + 8 and crop = 'soybean' and grade = 'C'`)).rows);
+        expect(live).toEqual([{ rate_per_quintal: "4410.00", version: 1 }]);
+      }
+      expect((await audit(id)).map((a) => a.action)).toEqual(["created", "published"]);
+    });
+
+    it("is all or nothing", async () => {
+      const good = await draft(`${TODAY} + 9`, "soybean", "C", 4400);
+      const done = await draft(`${TODAY} + 9`, "tur", "C", 6900);
+      await publish(done);
+      const message = await publish(good, done).then(() => "published", (e) => e.message);
+      expect(message).toMatch(/only an unpublished price/i);
+      expect((await version(good)).status).toBe("draft");
+    });
+  });
+
+  describe("published prices are immutable", () => {
+    let id: string;
+    beforeAll(async () => {
+      id = await draft(`${TODAY} + 10`, "soybean", "C", 4420);
+      await publish(id);
+    });
+
+    it("cannot be edited or deleted through the board functions", async () => {
+      expect(await asUser(MANAGER, () => failsWith(db.query("select update_price_draft($1, 1)", [id])))).toMatch(/unpublished/i);
+      expect(await asUser(MANAGER, () => failsWith(db.query("select delete_price_draft($1)", [id])))).toMatch(/unpublished/i);
+    });
+
+    it("cannot be changed by direct writes from a manager or an operator", async () => {
+      for (const uid of [MANAGER, OPERATOR_C07]) {
+        for (const sql of [
+          `update price_versions set rate_per_quintal = 1 where id = '${id}' returning id`,
+          `update daily_prices set rate_per_quintal = 1 where price_date = ${TODAY} + 10 and crop = 'soybean' and grade = 'C' returning id`,
+          `delete from price_versions where id = '${id}' returning id`,
+          `delete from daily_prices where price_date = ${TODAY} + 10 and crop = 'soybean' and grade = 'C' returning id`,
+        ]) {
+          const rows = await asUser(uid, async () => (await db.query(sql)).rows);
+          expect(rows).toEqual([]);
+        }
+        const message = await asUser(uid, () =>
+          failsWith(db.query(`insert into daily_prices (price_date, crop, grade, rate_per_quintal) values (${TODAY} + 11, 'tur', 'C', 1)`)));
+        expect(message).toMatch(/row-level security/i);
+      }
+      expect(Number((await version(id)).rate_per_quintal)).toBe(4420);
+    });
+
+    it("is protected by a trigger even from a privileged session", async () => {
+      for (const sql of [
+        `update price_versions set rate_per_quintal = 1 where id = '${id}'`,
+        `update price_versions set price_date = price_date + 1 where id = '${id}'`,
+        `update price_versions set status = 'draft' where id = '${id}'`,
+        `delete from price_versions where id = '${id}'`,
+      ]) {
+        expect(await failsWith(db.query(sql))).toMatch(/published price|identity|cannot/i);
+      }
+    });
+  });
+
+  describe("corrections", () => {
+    let first: string;
+    beforeAll(async () => {
+      first = await draft(`${TODAY} + 12`, "tur", "C", 6900);
+      await publish(first);
+    });
+
+    it("need a reason, and a different rate", async () => {
+      expect(await asUser(MANAGER, () => failsWith(db.query(`select create_price_draft(${TODAY} + 12, 'tur', 'C', 6950)`)))).toMatch(/needs a reason/i);
+      expect(await asUser(MANAGER, () => failsWith(db.query(`select create_price_draft(${TODAY} + 12, 'tur', 'C', 6900, 'typo in board')`)))).toMatch(/same as the published/i);
+    });
+
+    it("publish as a new version that supersedes the old one and keeps its history", async () => {
+      const second = await draft(`${TODAY} + 12`, "tur", "C", 6950, "Mandi rate moved after noon");
+      expect(await version(second)).toMatchObject({ version: 2, supersedes_id: first, correction_reason: "Mandi rate moved after noon" });
+      // Until it is published, the live rate is unchanged.
+      const before = await db.query(`select rate_per_quintal::text, version from daily_prices where price_date = ${TODAY} + 12 and crop = 'tur' and grade = 'C'`);
+      expect(before.rows).toEqual([{ rate_per_quintal: "6900.00", version: 1 }]);
+
+      await publish(second);
+      const after = await db.query(`select rate_per_quintal::text, version from daily_prices where price_date = ${TODAY} + 12 and crop = 'tur' and grade = 'C'`);
+      expect(after.rows).toEqual([{ rate_per_quintal: "6950.00", version: 2 }]);
+
+      expect((await version(first)).status).toBe("superseded");
+      expect(Number((await version(first)).rate_per_quintal)).toBe(6900);
+      expect((await audit(first)).map((a) => a.action)).toEqual(["created", "published", "superseded"]);
+      const history = await asUser(OPERATOR_C07, async () => (await db.query<{ version: number; status: string }>(
+        `select version, status from price_versions where price_date = ${TODAY} + 12 and crop = 'tur' and grade = 'C' order by version`)).rows);
+      expect(history).toEqual([{ version: 1, status: "superseded" }, { version: 2, status: "published" }]);
+    });
+  });
+
+  it("gives rates inserted straight into the live table (the demo seed) a published history row", async () => {
+    const rows = (await db.query<{ status: string; version: number }>(
+      "select status, version from price_versions where price_date = current_date and crop = 'soybean' and grade = 'A'")).rows;
+    expect(rows).toEqual([{ status: "published", version: 1 }]);
+  });
+
+  describe("rate snapshot on procurement entries", () => {
+    // soybean C for today: a slot nothing else in this file uses.
+    async function entry(slip: string, rate: string, rateVersion: number | null) {
+      const { rows } = await db.query<{ id: string }>(`
+        insert into procurement_entries
+          (client_id, slip_no, farmer_id, centre_id, operator_id, crop, grade, gross_kg, tare_kg, moisture_pct,
+           net_kg, rate_per_quintal, amount, device_id, device_recorded_at, payload_hash, rate_price_date, rate_version)
+        select gen_random_uuid(), '${slip}', f.id, '${centreC07}', '${OPERATOR_C07}', 'soybean', 'C', 860.0, 12.0, 14.0,
+               831.0, ${rate}, round(831.0 * ${rate} / 100, 2), 'dev-snap-0001', now(), repeat('c', 64),
+               ${rateVersion === null ? "null" : "public.ist_today()"}, ${rateVersion ?? "null"}
+          from farmer_members f where f.member_code = 'FM00101' returning id`);
+      return rows[0].id;
+    }
+    const get = async (id: string) =>
+      (await db.query<Record<string, unknown>>("select * from procurement_entries where id = $1", [id])).rows[0];
+    let v1: string;
+
+    beforeAll(async () => {
+      v1 = await draft(TODAY, "soybean", "C", 4400);
+      await publish(v1);
+    });
+
+    it("stores the rate, its effective date and its version with the entry", async () => {
+      const id = await entry("C07-00201", "4400", 1);
+      const row = await get(id);
+      expect(row).toMatchObject({ approval_status: "approved", rate_version: 1 });
+      expect(String(row.rate_per_quintal)).toBe("4400.00");
+      expect(row.rate_price_date).toBeTruthy();
+      const log = (await db.query<{ new_values: Record<string, unknown> }>(
+        "select new_values from procurement_audit_logs where entry_id = $1 and action = 'created'", [id])).rows[0];
+      expect(log.new_values).toMatchObject({ rate_version: 1, rate_per_quintal: 4400 });
+    });
+
+    it("holds an entry that claims a version which never carried that rate", async () => {
+      const id = await entry("C07-00202", "4400", 7);
+      expect((await get(id)).flag_reasons).toContain("rate_mismatch");
+    });
+
+    it("keeps the snapshot untouched when a correction is published later, and flags the older rate", async () => {
+      const before = await entry("C07-00203", "4400", 1);
+      const second = await draft(TODAY, "soybean", "C", 4450, "Corrected after market close");
+      await publish(second);
+
+      // The earlier entry still carries 4400 and version 1; nothing rewrote it.
+      const kept = await get(before);
+      expect(String(kept.rate_per_quintal)).toBe("4400.00");
+      expect(kept.rate_version).toBe(1);
+
+      // An offline phone that never saw the correction syncs an entry at the old rate.
+      const stale = await entry("C07-00204", "4400", 1);
+      const row = await get(stale);
+      expect(row.flag_reasons).toEqual(["superseded_rate"]);
+      expect(row.approval_status).toBe("held");
+      expect(String(row.rate_per_quintal)).toBe("4400.00");
+
+      const fresh = await entry("C07-00205", "4450", 2);
+      expect((await get(fresh)).approval_status).toBe("approved");
+    });
+
+    it("never lets the stored rate be rewritten afterwards, even by a manager", async () => {
+      const id = await entry("C07-00206", "4450", 2);
+      for (const set of ["rate_per_quintal = 4000", "rate_version = 1", "rate_price_date = rate_price_date + 1"]) {
+        expect(await asUser(MANAGER, () => failsWith(db.query(`update procurement_entries set ${set} where id = '${id}'`)))).toMatch(/immutable|check/i);
+      }
+    });
+  });
+});
+
+describe("sms log", () => {
+  let entryC07: string;
+  let entryC12: string;
+  let farmerId: string;
+  const insertSms = (uid: string, centre: string, entryId: string, extra = "") =>
+    asUser(uid, async () => (await db.query<{ id: string }>(`
+      insert into sms_messages (entry_id, farmer_id, centre_id, recipient_masked, body, created_by ${extra ? ", " + extra.split("|")[0] : ""})
+      values ('${entryId}', '${farmerId}', '${centre}', '+91 98****4321', 'रक्कम ₹40,303.50', '${uid}' ${extra ? ", " + extra.split("|")[1] : ""})
+      returning id`)).rows[0].id);
+
+  beforeAll(async () => {
+    farmerId = (await db.query<{ id: string }>("select id from farmer_members where member_code = 'FM00101'")).rows[0].id;
+    const mk = async (slip: string, centre: string, op: string) =>
+      (await db.query<{ id: string }>(`
+        insert into procurement_entries
+          (client_id, slip_no, farmer_id, centre_id, operator_id, crop, grade, gross_kg, tare_kg, moisture_pct,
+           net_kg, rate_per_quintal, amount, device_id, device_recorded_at, payload_hash)
+        values (gen_random_uuid(), '${slip}', '${farmerId}', '${centre}', '${op}', 'soybean', 'A', 860.0, 12.0, 14.0,
+                831.0, 4850, 40303.50, 'dev-sms-0001', now(), repeat('d', 64)) returning id`)).rows[0].id;
+    entryC07 = await mk("C07-00301", centreC07, OPERATOR_C07);
+    entryC12 = await mk("C12-00301", centreC12, OPERATOR_C12);
+  });
+
+  it("lets an operator log an SMS for their own centre, in sending state", async () => {
+    const id = await insertSms(OPERATOR_C07, centreC07, entryC07);
+    const row = (await db.query<Record<string, unknown>>("select * from sms_messages where id = $1", [id])).rows[0];
+    expect(row).toMatchObject({ status: "sending", provider: "mock", attempts: 0, recipient_masked: "+91 98****4321" });
+    expect(row.created_at).toBeTruthy();
+  });
+
+  it("allows only one slip SMS per entry", async () => {
+    const message = await asUser(OPERATOR_C07, () => failsWith(insertSms(OPERATOR_C07, centreC07, entryC07)));
+    expect(message).toMatch(/duplicate|unique/i);
+  });
+
+  it("refuses to store an unmasked phone number", async () => {
+    const message = await failsWith(db.query(`
+      insert into sms_messages (entry_id, farmer_id, centre_id, recipient_masked, body, created_by)
+      values ('${entryC12}', '${farmerId}', '${centreC12}', '+919876543210', 'x', '${OPERATOR_C12}')`));
+    expect(message).toMatch(/recipient_masked|check/i);
+  });
+
+  it("keeps one centre's SMS log away from another centre's operator", async () => {
+    const other = await asUser(OPERATOR_C12, async () => (await db.query("select id from sms_messages")).rows);
+    expect(other).toEqual([]);
+    const message = await asUser(OPERATOR_C12, () => failsWith(insertSms(OPERATOR_C12, centreC07, entryC07)));
+    expect(message).toMatch(/row-level security/i);
+    const manager = await asUser(MANAGER, async () => (await db.query("select id from sms_messages")).rows);
+    expect(manager.length).toBeGreaterThan(0);
+  });
+
+  it("requires a reason for a failure, never edits the message, and never un-delivers", async () => {
+    const id = await insertSms(OPERATOR_C12, centreC12, entryC12);
+    expect(await asUser(OPERATOR_C12, () => failsWith(db.query("update sms_messages set status = 'failed' where id = $1", [id])))).toMatch(/failed_has_reason|check/i);
+    expect(await asUser(OPERATOR_C12, () => failsWith(db.query("update sms_messages set body = 'changed' where id = $1", [id])))).toMatch(/cannot be edited/i);
+
+    await asUser(OPERATOR_C12, () => db.query("update sms_messages set status = 'delivered', status_at = now() where id = $1", [id]));
+    expect(await asUser(OPERATOR_C12, () => failsWith(db.query("update sms_messages set status = 'failed', failure_reason = 'x' where id = $1", [id])))).toMatch(/delivered/i);
   });
 });

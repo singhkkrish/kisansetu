@@ -74,12 +74,12 @@ begin
     insert into public.procurement_entries
       (client_id, slip_no, farmer_id, centre_id, operator_id, crop, grade,
        gross_kg, tare_kg, moisture_pct, net_kg, rate_per_quintal, amount,
-       device_id, device_recorded_at, payload_hash, prev_hash)
+       device_id, device_recorded_at, payload_hash, prev_hash, rate_price_date, rate_version)
     values
       (v_client, rec.slip, v_farmer, v_centre, v_operator, rec.crop::public.crop_type, rec.grade::public.grade_type,
        rec.gross::numeric, rec.tare::numeric, rec.moisture::numeric, rec.net::numeric,
        rec.rate::numeric, rec.amount::numeric,
-       rec.device, rec.at_time, v_hash, v_prev);
+       rec.device, rec.at_time, v_hash, v_prev, date '2026-11-02', 1);
   end loop;
 end;
 $$;
