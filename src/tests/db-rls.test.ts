@@ -488,7 +488,9 @@ describe("server-authoritative entry integrity", () => {
 
     it("refuses once the entry is in a payment run", async () => {
       const id = await insertAs(OPERATOR_C07, centreC07, "C07-00111");
+      await db.exec("select set_config('kisansetu.payment_write', 'on', false)");
       await db.query("update procurement_entries set payment_status = 'in_run' where id = $1", [id]);
+      await db.exec("select set_config('kisansetu.payment_write', '', false)");
       const message = await asUser(MANAGER, () => failsWith(db.query("select review_entry($1, 'hold', 'second look needed')", [id])));
       expect(message).toMatch(/payment run/i);
     });
