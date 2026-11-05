@@ -39,10 +39,22 @@ describe("source code safety", () => {
   });
 
   it("only ever puts bank account numbers through the masking helper on the server", () => {
-    // Components and pages must not select account_number themselves.
+    // Components and pages must not select account_number themselves. The bank file
+    // builder is the one other place that handles full numbers; it is only imported
+    // by the bank-file API route (checked below).
     const offenders = files.filter(
-      (file) => /account_number/.test(fs.readFileSync(file, "utf8")) && !file.includes(`${path.sep}services${path.sep}`) && !file.includes(`${path.sep}validation${path.sep}`) && !file.includes(`${path.sep}api${path.sep}`),
+      (file) => /account_number/.test(fs.readFileSync(file, "utf8")) && !file.includes(`${path.sep}services${path.sep}`) && !file.includes(`${path.sep}validation${path.sep}`) && !file.includes(`${path.sep}api${path.sep}`) && !file.endsWith(path.join("lib", "payments", "bank-file.ts")),
     );
     expect(offenders.map((f) => path.relative(SRC, f))).toEqual([]);
+  });
+
+  it("only lets the bank file API route import the bank file builder", () => {
+    const importers = files.filter(
+      (file) => /payments\/bank-file/.test(fs.readFileSync(file, "utf8")) && !file.endsWith(path.join("lib", "payments", "bank-file.ts")),
+    );
+    expect(importers.map((f) => path.relative(SRC, f)).sort()).toEqual([
+      path.join("lib", "services", "payments.ts"),
+      path.join("app", "api", "payment-runs", "[id]", "bank-file", "route.ts"),
+    ].sort());
   });
 });

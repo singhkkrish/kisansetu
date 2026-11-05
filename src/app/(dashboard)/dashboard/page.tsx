@@ -8,6 +8,7 @@ import { Notice } from "@/components/ui/notice";
 import { formatInr, istDate } from "@/lib/calculations/format";
 import { getMessages } from "@/lib/i18n/messages";
 import { getPart4Messages } from "@/lib/i18n/part4-messages";
+import { getPart5Messages } from "@/lib/i18n/part5-messages";
 import { getSession } from "@/lib/services/session";
 import { createClient } from "@/lib/supabase/server";
 import type { Crop } from "@/types/domain";
@@ -24,6 +25,7 @@ export default async function DashboardPage({
 
   const t = getMessages(session.profile.preferred_lang);
   const t4 = getPart4Messages(session.profile.preferred_lang);
+  const t5 = getPart5Messages(session.profile.preferred_lang);
   // requirePermission() sends people here with ?denied=1 when a page is not theirs to open.
   const denied = (await searchParams).denied !== undefined;
   const supabase = await createClient();
@@ -51,6 +53,14 @@ export default async function DashboardPage({
       <h1 className="text-2xl font-bold">
         {t.dashboard.welcome}, {session.profile.full_name}
       </h1>
+
+      {stats && (
+        <nav aria-label="Shortcuts" className="flex flex-wrap gap-3 text-base font-semibold">
+          <Link href="/procurement?status=held" className="inline-flex h-11 items-center rounded-lg border border-line bg-surface px-4 text-primary">{t5.review.title}</Link>
+          <Link href="/payments" className="inline-flex h-11 items-center rounded-lg border border-line bg-surface px-4 text-primary">{t5.payments.title}</Link>
+          <Link href="/stock" className="inline-flex h-11 items-center rounded-lg border border-line bg-surface px-4 text-primary">{t5.stock.title}</Link>
+        </nav>
+      )}
 
       {stats && (
         <dl className="grid gap-4 sm:grid-cols-3">

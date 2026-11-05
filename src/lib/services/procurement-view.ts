@@ -7,11 +7,15 @@ export interface EntryListItem {
   farmerName: string;
   farmerCode: string;
   centreCode: string;
+  centreName: string;
   crop: Crop;
   netKg: string;
   amount: string;
   approvalStatus: ApprovalStatus;
   paymentStatus: PaymentStatus;
+  syncStatus: "pending" | "synced" | "rejected";
+  /** Why the entry needs a look. Empty means no anomaly was found. */
+  flagReasons: FlagReason[];
   flagCount: number;
   receivedAt: string;
 }
@@ -28,18 +32,27 @@ export function parseApprovalFilter(value: unknown): ApprovalFilter {
 
 export const LIST_LIMIT = 100;
 
+export interface ListOptions {
+  centreId?: string | null;
+  /** Only entries the server flagged as anomalies. */
+  anomaliesOnly?: boolean;
+}
+
 export async function listEntries(
   supabase: SupabaseClient,
   filter: ApprovalFilter,
+  options: ListOptions = {},
 ): Promise<{ items: EntryListItem[]; error: boolean }> {
   let query = supabase
     .from("procurement_entries")
     .select(
-      "id, slip_no, crop, net_kg, amount, approval_status, payment_status, flag_reasons, server_received_at, farmer_members(full_name, member_code), centres(code)",
+      "id, slip_no, crop, net_kg, amount, approval_status, payment_status, sync_status, flag_reasons, server_received_at, farmer_members(full_name, member_code), centres(code, name)",
     )
     .order("server_received_at", { ascending: false })
     .limit(LIST_LIMIT);
   if (filter !== "all") query = query.eq("approval_status", filter);
+  if (options.centreId) query = query.eq("centre_id", options.centreId);
+  if (options.anomaliesOnly) query = query.not("flag_reasons", "eq", "{}");
 
   const { data, error } = await query;
   if (error) return { items: [], error: true };
@@ -48,19 +61,23 @@ export async function listEntries(
     error: false,
     items: ((data as Raw[] | null) ?? []).map((r) => {
       const farmer = one<{ full_name: string; member_code: string }>(r.farmer_members);
-      const centre = one<{ code: string }>(r.centres);
+      const centre = one<{ code: string; name: string }>(r.centres);
+      const flags = ((r.flag_reasons as string[] | null) ?? []) as FlagReason[];
       return {
         id: r.id as string,
         slipNo: r.slip_no as string,
         farmerName: farmer?.full_name ?? "—",
         farmerCode: farmer?.member_code ?? "",
         centreCode: centre?.code ?? "",
+        centreName: centre?.name ?? "",
         crop: r.crop as Crop,
         netKg: Number(r.net_kg).toFixed(1),
         amount: Number(r.amount).toFixed(2),
         approvalStatus: r.approval_status as ApprovalStatus,
         paymentStatus: r.payment_status as PaymentStatus,
-        flagCount: ((r.flag_reasons as string[] | null) ?? []).length,
+        syncStatus: r.sync_status as "pending" | "synced" | "rejected",
+        flagReasons: flags,
+        flagCount: flags.length,
         receivedAt: r.server_received_at as string,
       };
     }),

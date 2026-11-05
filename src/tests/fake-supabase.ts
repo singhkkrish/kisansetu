@@ -29,7 +29,7 @@ export function fakeSupabase(options: FakeSupabaseOptions = {}) {
     from(table: string) {
       queriedTables.push(table);
       const chain: Record<string, unknown> = {};
-      for (const method of ["select", "eq", "or", "order", "range", "limit"]) {
+      for (const method of ["select", "eq", "or", "order", "range", "limit", "in", "is", "gte", "lt", "not"]) {
         chain[method] = () => chain;
       }
       chain.maybeSingle = async () => ({ data: options.tables?.[table] ?? null, error: null });

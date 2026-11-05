@@ -21,6 +21,8 @@ describe("role permissions", () => {
       "members:bank:read",
       "members:bank:verify",
       "dashboard:financial",
+      "stock:read",
+      "dispatch:write",
     ])("cannot %s", (permission) => {
       expect(can("centre_operator", permission)).toBe(false);
     });
@@ -36,7 +38,10 @@ describe("role permissions", () => {
       "procurement:read_all",
       "procurement:approve",
       "payment_runs:create",
+      "payment_runs:approve",
       "dashboard:financial",
+      "stock:read",
+      "dispatch:write",
     ])("can %s", (permission) => {
       expect(can("office_manager", permission)).toBe(true);
     });

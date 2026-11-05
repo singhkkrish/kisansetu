@@ -10,8 +10,9 @@ Built for a Farmer Producer Company in Latur, Maharashtra: about 6,200 members,
 
 ## Status
 
-This repository holds **Parts 1 to 3**: the foundation, sign-in with roles and
-the farmer registry, and the offline-first procurement entry engine. See
+This repository holds **Parts 1 to 5**: the foundation, sign-in with roles and
+the farmer registry, the offline-first procurement entry engine, the daily price
+board with slips and SMS, and procurement review, payment runs, stock and dispatch. See
 [What is done](#what-is-done) and [What comes next](#what-comes-next).
 
 ## Stack
@@ -50,12 +51,15 @@ No secrets belong in the repository. `.env.local` is git-ignored.
 
 ### Database
 
-Migrations live in `supabase/migrations`, applied in filename order (there are six):
+Migrations live in `supabase/migrations`, applied in filename order (there are eight):
 
 ```bash
 supabase link --project-ref <your-project-ref>
 supabase db push
 psql "$DATABASE_URL" -f supabase/seed.sql              # centres, 37 sample farmers, today's prices
+# optional demo data, after creating operators for C07 and C12 (npm run staff:create):
+psql "$DATABASE_URL" -f supabase/seed_procurement.sql  # the three sample slips
+psql "$DATABASE_URL" -f supabase/seed_stock.sql        # ~20 purchases over three days, for payment and stock demos
 ```
 
 Or paste each migration file, in order, into the Supabase SQL editor.
@@ -292,6 +296,83 @@ Manual testing:
 7. As the manager, open an entry under **Procurement** to see the slip and the
    recorded SMS (masked number, message, status, time).
 
+## Part 5: review, payment runs, stock and dispatch
+
+Apply `supabase/migrations/20261105000008_payment_runs_and_stock.sql`. It replaces
+the unused Part 1 placeholder payment tables with the shape the workflow needs.
+
+**How it works**
+
+- **Review** (`/procurement`, office managers): each purchase with slip, farmer,
+  centre, crop, net weight, amount, sync status, anomaly reasons and approval.
+  Approve, hold, or reject with a reason. The server holds flagged entries for
+  review but never approves or cancels one by itself. Approving a flagged entry
+  needs an explicit tick.
+- **Payment runs** (`/payments`): choose dates and centres, review approved unpaid
+  purchases grouped by farmer, generate, approve, download the bank file. A run
+  moves *Awaiting approval → Approved → Sent to bank → Completed* (or *Cancelled*
+  before the file is downloaded). Payments move *Pending → Processing → Paid / Failed*.
+- **No double payment.** Only database functions change payment tables or an
+  entry's payment status. Generating a run locks the candidate entries, takes only
+  those still *unpaid*, and marks them *in run*; a second run finds nothing. A
+  unique index allows one active run link per entry, and a trigger refuses direct
+  edits of payment status. Amounts are worked out in the database, never taken
+  from the browser. Bank details are copied into the run when it is generated.
+- **Mock bank file**: a clearly labelled mock CSV, configurable (see
+  [docs/mock-bank-format.md](docs/mock-bank-format.md)). It is not a real bank format.
+- **Simulated bank response**: mark payments paid or failed. Failed payments stay
+  visible with their reason until the manager returns them to unpaid for a new run.
+- **Stock** (`/stock`): totals, soybean and tur stock, stock by centre, procurement
+  on the chosen date, pending approvals, pending and failed payments, unsynchronised
+  records, with date, centre and crop filters. Stock is purchases that stand
+  (approved or under review; rejected ones do not count) minus dispatches.
+- **Dispatch** (`/stock/dispatch`): centre, crop, weight, destination, truck number
+  and time. Stock before and after are computed under a lock, so stock cannot go
+  negative. Weight loss is the stock book quantity minus the weight on the truck.
+  Dispatch records cannot be edited. No invoicing or GST.
+
+**Limits worth knowing**
+
+- "Unsynchronised records" counts what the server knows: submissions it refused and
+  entries not marked synced. Entries still on a phone with no signal are visible
+  only on that phone.
+- The weighed dispatch weight cannot exceed the stock book quantity; enter the same
+  figure in both if there is no loss to record.
+- Approving a run does not need a second person. Anyone with the office manager role
+  can create and approve; both are recorded. Add a second-approver rule if the company wants one.
+- Payments to farmers with no verified bank account are left out of a run and listed
+  as "cannot be paid yet".
+
+### Manual testing checklist
+
+Set up: apply all migrations, run `seed.sql`, create an office manager and operators
+for C07 and C12, then run `seed_procurement.sql` and `seed_stock.sql`. Sign in as the manager.
+
+1. **Review queue.** Open *Procurement*. Columns show slip, farmer, centre, crop, net weight, amount, sync, anomaly, approval.
+   - Tick *Flagged entries only*: `C07-24528` (rate differs from the published rate) is listed as held with a rate-mismatch reason.
+   - Filter by centre C12: only C12 entries remain.
+   - Press **Approve** on `C07-24528`: the box asks you to confirm the flagged reason; without the tick it refuses. Tick and confirm: it becomes Approved.
+   - Press **Hold** with no reason: refused. With "Checking weight" it becomes Held. Press **Reject** with a reason: Rejected.
+   - Confirm nothing was rejected automatically: no entry is Rejected unless you did it.
+2. **Preview.** Open *Payments → New payment run*. Choose the last 5 days and C07 and C12, press *Show approved unpaid purchases*.
+   - Entries are grouped one row per farmer with farmer ID, name, masked account (only last four digits), IFSC, entry count and amount.
+   - The total equals the sum of the rows. Held and rejected entries are not included.
+   - `FM00104` appears under *Cannot be paid yet* (bank not verified) and is not in the total.
+3. **Generate.** Press *Generate payment run*. You land on the run (`PR-YYYYMMDD-001`) in *Awaiting approval*. Items are *Pending*; farmer, account, IFSC, entries, amount match the preview.
+4. **Duplicates.** Go back, repeat step 2 with the same dates: the preview shows no approved unpaid purchases. Double-click *Generate* quickly on a fresh selection: only one run is created.
+5. **Approve.** Tick the confirmation, press *Approve payment run*. Status becomes *Approved*. Before approving, there is no download button.
+6. **Bank file.** Press *Download bank file (mock CSV)*. A file named `KISANSETU-MOCK-PR-….csv` downloads; open it as text: header plus one line per farmer with beneficiary name, account number, IFSC, amount (two decimals), payment reference, run ID. The red warning says it is a mock. The run becomes *Sent to bank (mock)* and items *Processing*. *Cancel* is no longer offered.
+7. **Simulate success.** Select one or more payments, *Mark selected as paid*. They show *Paid* with a bank reference.
+8. **Simulate failure.** Select another, pick a reason, *Mark selected as failed*. It shows *Failed* in red with the reason, and the red banner stays.
+9. **Failed stays visible.** Reload the page and the payments list: the failed payment and the run's "failed, needs review" note are still there. Try marking a settled payment again: not possible.
+10. **Retry.** On the failed payment press *Return to unpaid*; it stays as *Failed · Returned to unpaid*. Create a new run for the same dates: it contains only those purchases.
+11. **Cancel.** Create another run, and *Cancel this run* with a reason (at least 5 characters) before downloading. Its purchases return to unpaid and can be put in a new run.
+12. **Stock dashboard.** Open *Stock*. Check the eight figures, the stock-by-centre table, and the weight-loss box. Change the date, centre and crop filters and see the figures change; with crop Tur, Soybean stock shows 0.
+13. **Dispatch.** *Record a dispatch*: choose C07, Soybean. The current stock is shown. Enter weight 980, stock book quantity 1000, destination "Latur APMC", truck "mh 24 ab 1234". The form shows stock after (current − 1000) and loss 20.0 kg · 2.0%. Save. History lists it with before/after and loss. The dashboard stock fell by 1000 and the loss box shows it.
+    - Weight 1100 with book 1000: refused. A book quantity above current stock: refused. A truck number of "X1": refused.
+14. **Roles.** Sign in as a centre operator: no Prices, Payments or Stock links; opening `/payments`, `/stock` or `/stock/dispatch` by URL sends you back to the dashboard; `/procurement` shows only your own phone entries.
+15. **Existing features.** Record a purchase offline as an operator, sync, see it appear in the manager's review queue; the price board, slip and SMS from Part 4 still work.
+
 ## What is done
 
 - Project setup and tooling
@@ -311,9 +392,13 @@ Manual testing:
 - Rate snapshot stored on every procurement entry; later prices never change it
 - Bilingual (Marathi + English) digital slip, printable
 - Mock SMS service with preview, offline queue and honest delivery status
+- Manager review queue with sync and anomaly columns, approve / hold / reject
+- Payment runs grouped by farmer, approval, mock bank CSV, simulated bank responses, failed-payment review
+- Duplicate-payment protection in the database (locks, unique index, guarded status)
+- Stock dashboard with date, centre and crop filters; dispatch with weight-loss tracking
 
 ## What comes next
 
-- Payment run: grouping, bank bulk file, status per farmer
-- Scale and moisture meter photo reading, anomaly review queue
-- Stock, dispatch and weight-loss tracking
+- A bank's real bulk-payment format, once the company's bank supplies it
+- Scale and moisture meter photo reading
+- Reports and exports for the board

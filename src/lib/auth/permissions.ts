@@ -22,6 +22,8 @@ export const PERMISSIONS = [
   "dashboard:financial",
   "sms:send",
   "sms:read",
+  "stock:read",
+  "dispatch:write",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -53,6 +55,8 @@ const GRANTS: Record<UserRole, readonly Permission[]> = {
     "payment_runs:approve",
     "dashboard:financial",
     "sms:read",
+    "stock:read",
+    "dispatch:write",
   ],
 };
 

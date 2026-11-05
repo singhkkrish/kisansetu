@@ -129,7 +129,7 @@ afterAll(async () => {
 
 describe("payment run generation", () => {
   it("groups approved unpaid entries by farmer and totals them exactly", async () => {
-    const e1 = await addEntry({ farmer: farmerA, centre: c07, operator: OPERATOR_C07, net: 1000.5 === 0 ? 1 : 1000 });
+    const e1 = await addEntry({ farmer: farmerA, centre: c07, operator: OPERATOR_C07, net: 1000 });
     const e2 = await addEntry({ farmer: farmerA, centre: c07, operator: OPERATOR_C07, net: 250 });
     const e3 = await addEntry({ farmer: farmerB, centre: c07, operator: OPERATOR_C07, crop: "tur", net: 400 });
 
