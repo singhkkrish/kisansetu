@@ -10,9 +10,10 @@ Built for a Farmer Producer Company in Latur, Maharashtra: about 6,200 members,
 
 ## Status
 
-This repository holds **Parts 1 to 5**: the foundation, sign-in with roles and
+This repository holds **Parts 1 to 6**: the foundation, sign-in with roles and
 the farmer registry, the offline-first procurement entry engine, the daily price
-board with slips and SMS, and procurement review, payment runs, stock and dispatch. See
+board with slips and SMS, procurement review, payment runs, stock and dispatch, and
+AI-assisted meter reading with anomaly detection and human review. See
 [What is done](#what-is-done) and [What comes next](#what-comes-next).
 
 ## Stack
@@ -45,6 +46,9 @@ npm run dev                    # http://localhost:3000
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | yes | Supabase anon (public) key |
 | `SUPABASE_SERVICE_ROLE_KEY` | only for `staff:create` | Server-only admin key used by `npm run staff:create` on a trusted machine. Never put it in the app's hosting environment or expose it to the browser. |
 | `NEXT_PUBLIC_APP_URL` | no | Public base URL, defaults to `http://localhost:3000` |
+| `ANTHROPIC_API_KEY` | no | Server-only key for AI reading of scale and moisture photos. Without it the feature is off and operators type readings. Never prefix with `NEXT_PUBLIC_`. |
+| `ANTHROPIC_MODEL` | no | Model used for reading displays. Default `claude-sonnet-5-5`. |
+| `ANTHROPIC_TIMEOUT_MS` | no | Request timeout, 1000 to 60000. Default `20000`. |
 | `SYNC_MAX_FUTURE_SKEW_MINUTES` | no | How far ahead of the server a phone clock may be before an entry is held for review. Default `10`. |
 
 No secrets belong in the repository. `.env.local` is git-ignored.
@@ -373,6 +377,63 @@ for C07 and C12, then run `seed_procurement.sql` and `seed_stock.sql`. Sign in a
 14. **Roles.** Sign in as a centre operator: no Prices, Payments or Stock links; opening `/payments`, `/stock` or `/stock/dispatch` by URL sends you back to the dashboard; `/procurement` shows only your own phone entries.
 15. **Existing features.** Record a purchase offline as an operator, sync, see it appear in the manager's review queue; the price board, slip and SMS from Part 4 still work.
 
+## Part 6: AI-assisted readings, anomaly detection and review
+
+Details for testing the AI with your own photos and key: [docs/ai-reading.md](docs/ai-reading.md).
+
+**AI reading (operators).** In the weight and moisture steps an operator can add a photo of the
+scale or moisture meter display. The photo goes to `POST /api/ai/read-display`, which is the only
+place the Anthropic key is used. The reply is forced into a JSON schema and validated again with Zod.
+The screen shows the photo beside what the AI read.
+
+- The AI value is a suggestion. It is not put in the field until the operator presses *Use this value*.
+  They can also *type the value themselves*, *reject* the reading, or *upload another photo*.
+- If the operator's value differs from the AI's, a box must be ticked before they can continue.
+- If the AI is unsure (low confidence, unreadable, unit unclear, implausible), the screen says so,
+  fills nothing and asks for manual entry. Failures (bad image, unsupported format, poor quality,
+  timeout, API error, malformed answer, no value found, not configured, rate limited) do the same.
+  No value is ever made up.
+- The AI never approves, saves or pays anything. Entries still go through the normal sync and review.
+- How each figure was obtained (typed, AI confirmed, AI corrected, plus what the AI read) is stored with
+  the entry in `reading_meta`. It is not part of the tamper-evident hash and holds no image.
+
+**Privacy.** Only the (re-encoded, GPS-stripped, downscaled) image and the word "scale" or "moisture"
+are sent to the provider: no farmer, bank, centre, price or payment data. Images are held in memory
+for the request and never stored. Responses are sent with `Cache-Control: no-store`. Reads are limited
+per user (20 per 10 minutes) as a cost guard.
+
+**Anomaly detection (office manager).** Rules run in the database when an entry arrives:
+
+| Rule | Flags an entry when |
+| --- | --- |
+| `weight_vs_land` | the farmer's total for the crop in the season window exceeds land area x an assumed kg per acre |
+| `repeat_within_hour` | the same farmer has another entry within the window (default 60 minutes) |
+| `uniform_moisture` | the last 10 moisture readings at a centre sit within 0.2 percentage points |
+| `weight_pattern_change` | the weight is over 3x the farmer's usual (median of recent entries) |
+| `moisture_pattern_change` | the moisture differs from the farmer's usual by 5 points or more |
+
+**Every threshold is a demo assumption, not an agronomic or official limit**, and is labelled so on screen
+until an office manager changes it on *Flagged entries → Thresholds* (changes are range-checked and logged).
+A flag explains why, holds the entry and its payment, and never cancels the purchase. Approving an entry
+is refused while an anomaly on it is open; payment runs skip entries with open anomalies. The manager
+marks an anomaly reviewed, confirmed, a false positive, or adds a note, and every action is written to the
+audit log. Reviewing an anomaly does not approve the purchase: the manager still approves or rejects it
+from the entry page, and approving after a confirmed anomaly needs a written reason.
+
+### Manual testing checklist (Part 6)
+
+1. Put `ANTHROPIC_API_KEY` in `.env.local` and restart. Sign in as an operator, start a purchase and reach *Gross weight*.
+2. Press *Read from a photo* and choose a clear photo of a scale. The photo appears beside the AI value; the field is empty. Press *Use this value*: it fills. Continue.
+3. Repeat with a different photo, press *No, I will type the value*, type another number: continuing is blocked until the box is ticked.
+4. Upload a blurry or dark photo: you get a message and an empty field to type in.
+5. Upload a photo that is not a display, a PDF or a huge file: a clear message, no value.
+6. Remove the key and restart: *not switched on here* appears and typing still works. Go offline: the photo button disappears.
+7. Save a purchase, sync, sign in as the manager and open the entry: *How the figures were entered* shows the sources.
+8. Record two purchases for the same farmer a few minutes apart: the second is held. Open *Flagged entries*: the reason, values and status *Open* are shown; *Procurement* shows it held.
+9. Try *Approve* on that entry: refused with "open anomaly". *Mark as false positive* with a note, then *Approve* works.
+10. Create a payment run: held entries with an open anomaly are not in it. Check the audit trail on the entry page for every review action.
+11. Open *Thresholds*, raise the repeat window and see the *Demo assumption* label change to *Set by your office*.
+
 ## What is done
 
 - Project setup and tooling
@@ -396,9 +457,11 @@ for C07 and C12, then run `seed_procurement.sql` and `seed_stock.sql`. Sign in a
 - Payment runs grouped by farmer, approval, mock bank CSV, simulated bank responses, failed-payment review
 - Duplicate-payment protection in the database (locks, unique index, guarded status)
 - Stock dashboard with date, centre and crop filters; dispatch with weight-loss tracking
+- AI reading of scale and moisture photos with operator confirmation, correction and rejection; server-only key
+- Rule-based anomaly detection with payment hold, manager review, configurable thresholds and audit
 
 ## What comes next
 
 - A bank's real bulk-payment format, once the company's bank supplies it
-- Scale and moisture meter photo reading
+- Calibrating anomaly thresholds on real purchase data
 - Reports and exports for the board
