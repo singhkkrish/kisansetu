@@ -7,6 +7,7 @@ describe("role permissions", () => {
       "members:read",
       "procurement:create",
       "procurement:read_own_centre",
+      "ai:read_display",
     ])("can %s", (permission) => {
       expect(can("centre_operator", permission)).toBe(true);
     });
@@ -23,6 +24,8 @@ describe("role permissions", () => {
       "dashboard:financial",
       "stock:read",
       "dispatch:write",
+      "anomalies:read",
+      "anomalies:review",
     ])("cannot %s", (permission) => {
       expect(can("centre_operator", permission)).toBe(false);
     });
@@ -42,8 +45,14 @@ describe("role permissions", () => {
       "dashboard:financial",
       "stock:read",
       "dispatch:write",
+      "anomalies:read",
+      "anomalies:review",
     ])("can %s", (permission) => {
       expect(can("office_manager", permission)).toBe(true);
+    });
+
+    it("does not read displays with the AI, which is part of recording a purchase", () => {
+      expect(can("office_manager", "ai:read_display")).toBe(false);
     });
 
     it("does not record purchases, which is the operator's job", () => {
@@ -64,9 +73,9 @@ describe("role permissions", () => {
     expect(withBankAccess).toEqual(["office_manager"]);
   });
 
-  it("gives the operator a strict subset of what the manager can do, plus recording purchases and sending slip SMS", () => {
+  it("gives the operator a strict subset of what the manager can do, plus recording purchases, sending slip SMS and AI display reading", () => {
     const operatorOnly = permissionsFor("centre_operator").filter((p) => !can("office_manager", p));
-    expect(operatorOnly.sort()).toEqual(["procurement:create", "procurement:read_own_centre", "sms:send"]);
+    expect(operatorOnly.sort()).toEqual(["ai:read_display", "procurement:create", "procurement:read_own_centre", "sms:send"]);
   });
 
   it("lets only operators send SMS, and both roles read the SMS log; only managers set prices", () => {
