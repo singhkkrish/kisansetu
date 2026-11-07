@@ -18,7 +18,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       : session.centre?.name ?? (session.profile.preferred_lang === "mr" ? "केंद्र ऑपरेटर" : "Centre operator");
 
   const shell = (
-    <div className="min-h-dvh">
+    <div className="min-h-dvh" lang={session.profile.preferred_lang}>
       <AppHeader t={t} userName={session.profile.full_name} roleLabel={roleLabel} role={session.profile.role} pricesLabel={getPart4Messages(session.profile.preferred_lang).nav.prices} paymentsLabel={getPart5Messages(session.profile.preferred_lang).nav.payments} stockLabel={getPart5Messages(session.profile.preferred_lang).nav.stock} anomaliesLabel={getPart6Messages(session.profile.preferred_lang).nav.anomalies} />
       <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">{children}</main>
     </div>

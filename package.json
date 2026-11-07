@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "staff:create": "tsx --env-file=.env.local scripts/create-staff.ts"
+    "staff:create": "tsx --env-file=.env.local scripts/create-staff.ts",
+    "demo:users": "tsx --env-file=.env.local scripts/create-demo-users.ts"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.5.0",

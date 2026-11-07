@@ -75,14 +75,14 @@ export function SlipCard({ model, lang = "both" }: { model: SlipModel; lang?: Sl
         </div>
       </header>
 
-      <section className="grid grid-cols-2 gap-3" aria-label={lang === "en" ? "Amount and net weight" : "रक्कम व निव्वळ वजन"}>
+      <section className="grid grid-cols-1 gap-3" aria-label={lang === "en" ? "Amount and net weight" : "रक्कम व निव्वळ वजन"}>
         <div className="rounded-lg bg-primary-soft p-3" data-testid="slip-amount">
           <Label text={L.amount} lang={lang} />
-          <p className="mt-1 text-3xl font-extrabold tabular-nums text-primary">{model.headline.amount}</p>
+          <p className="mt-1 whitespace-nowrap text-3xl font-extrabold tabular-nums text-primary">{model.headline.amount}</p>
         </div>
         <div className="rounded-lg bg-primary-soft p-3" data-testid="slip-net">
           <Label text={L.net} lang={lang} />
-          <p className="mt-1 text-3xl font-extrabold tabular-nums text-primary">{model.headline.netKg}</p>
+          <p className="mt-1 whitespace-nowrap text-3xl font-extrabold tabular-nums text-primary">{model.headline.netKg}</p>
         </div>
       </section>
 
