@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowRight, CheckCircle2, Search, TriangleAlert } from "luci
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOffline } from "@/components/offline/offline-provider";
-import { NumberField } from "@/components/procurement/number-field";
+import { DisplayReader, type FieldResolution } from "@/components/procurement/display-reader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { PriceStatusLine } from "@/components/prices/price-status-line";
@@ -17,6 +17,8 @@ import { tryCalculate } from "@/lib/calculations/procurement";
 import { getLocalDb, type CachedMember, type CachedPrice, type LocalEntry } from "@/lib/db/local";
 import type { Messages } from "@/lib/i18n/messages";
 import { getPart4Messages } from "@/lib/i18n/part4-messages";
+import { getPart6Messages } from "@/lib/i18n/part6-messages";
+import type { Readings } from "@/lib/ai/schemas";
 import { businessDate } from "@/lib/offline/clock";
 import { SlipBlockExhaustedError, WrongCentreSlipBlockError, recordProcurement, slipNumbersRemaining } from "@/lib/offline/queue";
 import { listCachedRates, searchCachedMembers } from "@/lib/offline/reference-data";
@@ -45,6 +47,9 @@ interface Draft {
   snap: CachedPrice | null;
 }
 
+type ReadingField = "grossKg" | "tareKg" | "moisturePct";
+const NO_RESOLUTION: FieldResolution = { meta: undefined, blocked: null };
+
 const EMPTY_DRAFT: Draft = { farmer: null, crop: null, gross: "", tare: "", moisture: "", grade: null, snap: null };
 
 function Row({ label, value, strong }: { label: string; value: React.ReactNode; strong?: boolean }) {
@@ -59,11 +64,24 @@ function Row({ label, value, strong }: { label: string; value: React.ReactNode; 
 export function CollectWizard({ t, lang = "mr" }: { t: Messages; lang?: "mr" | "en" }) {
   const c = t.collect;
   const t4 = getPart4Messages(lang);
+  const t6 = getPart6Messages(lang);
   const { operator, deviceId, online, syncNow, refreshData, refreshing, getSlips } = useOffline();
 
   const [step, setStep] = useState<WizardStep>("farmer");
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [stepError, setStepError] = useState<StepError | null>(null);
+  // How each weight/moisture figure was obtained, and whether an AI reading still awaits the operator.
+  const [resolutions, setResolutions] = useState<Record<ReadingField, FieldResolution>>({ grossKg: NO_RESOLUTION, tareKg: NO_RESOLUTION, moisturePct: NO_RESOLUTION });
+  // The readers stay mounted once visited, so going back never loses what the operator confirmed.
+  const [reached, setReached] = useState(0);
+  const resolvers = useMemo(
+    () => ({
+      grossKg: (r: FieldResolution) => setResolutions((s) => ({ ...s, grossKg: r })),
+      tareKg: (r: FieldResolution) => setResolutions((s) => ({ ...s, tareKg: r })),
+      moisturePct: (r: FieldResolution) => setResolutions((s) => ({ ...s, moisturePct: r })),
+    }),
+    [],
+  );
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CachedMember[]>([]);
   const [saving, setSaving] = useState(false);
@@ -142,12 +160,16 @@ export function CollectWizard({ t, lang = "mr" }: { t: Messages; lang?: "mr" | "
     if (step === "tare") problem = validateTare(draft.tare, draft.gross);
     if (step === "moisture" && draft.crop) problem = validateMoisture(draft.moisture, draft.crop);
     if (step === "grade" && !calc) return;
+    if (step === "gross" && resolutions.grossKg.blocked) return;
+    if (step === "tare" && resolutions.tareKg.blocked) return;
+    if (step === "moisture" && resolutions.moisturePct.blocked) return;
     if (problem) {
       setStepError(problem);
       return;
     }
     setStep(WIZARD_STEPS[index + 1]);
-  }, [calc, draft, index, step]);
+    setReached((r) => Math.max(r, index + 1));
+  }, [calc, draft, index, step, resolutions]);
 
   const goBack = () => {
     setStepError(null);
@@ -159,6 +181,12 @@ export function CollectWizard({ t, lang = "mr" }: { t: Messages; lang?: "mr" | "
     setSaving(true);
     setSaveError(null);
     const db = getLocalDb();
+    // Only figures where the AI was used are recorded; a purely typed entry carries nothing extra.
+    const readings: Readings = {};
+    for (const field of ["grossKg", "tareKg", "moisturePct"] as const) {
+      const meta = resolutions[field].meta;
+      if (meta) readings[field] = meta;
+    }
     const input = {
       farmerId: draft.farmer.id,
       crop: draft.crop,
@@ -170,6 +198,7 @@ export function CollectWizard({ t, lang = "mr" }: { t: Messages; lang?: "mr" | "
       // Which published price this is: its effective date and version.
       rateDate: draft.snap?.priceDate,
       ...(draft.snap?.version ? { rateVersion: draft.snap.version } : {}),
+      ...(readings ? { readings } : {}),
     };
     const context = { ...operator, deviceId, clientId: draftId.current };
     try {
@@ -202,6 +231,8 @@ export function CollectWizard({ t, lang = "mr" }: { t: Messages; lang?: "mr" | "
     setSaved(null);
     setSaveError(null);
     setStepError(null);
+    setResolutions({ grossKg: NO_RESOLUTION, tareKg: NO_RESOLUTION, moisturePct: NO_RESOLUTION });
+    setReached(0);
     setStep("farmer");
   }
 
@@ -300,14 +331,30 @@ export function CollectWizard({ t, lang = "mr" }: { t: Messages; lang?: "mr" | "
         </div>
       )}
 
-      {step === "gross" && (
-        <NumberField id="gross" label={c.gross} unit={c.kg} value={draft.gross} onChange={(v) => set("gross", v)} onEnter={goNext} error={errorText(stepError)} autoFocus />
-      )}
-      {step === "tare" && (
-        <NumberField id="tare" label={c.tare} unit={c.kg} value={draft.tare} onChange={(v) => set("tare", v)} onEnter={goNext} error={errorText(stepError)} autoFocus />
-      )}
-      {step === "moisture" && (
-        <NumberField id="moisture" label={c.moisture} unit={c.percent} value={draft.moisture} onChange={(v) => set("moisture", v)} onEnter={goNext} error={errorText(stepError)} autoFocus />
+      {(
+        [
+          ["gross", "grossKg", c.gross, "gross"],
+          ["tare", "tareKg", c.tare, "tare"],
+          ["moisture", "moisturePct", c.moisture, "moisture"],
+        ] as const
+      ).map(([stepName, field, label, key]) =>
+        reached >= WIZARD_STEPS.indexOf(stepName) ? (
+          <div key={key} hidden={step !== stepName}>
+            <DisplayReader
+              kind={field === "moisturePct" ? "moisture" : "scale"}
+              id={key}
+              label={label}
+              unit={field === "moisturePct" ? c.percent : c.kg}
+              value={draft[key]}
+              onChange={(v) => set(key, v)}
+              onEnter={goNext}
+              error={step === stepName ? errorText(stepError) : undefined}
+              onResolved={resolvers[field]}
+              t={t6.reader}
+              online={online}
+            />
+          </div>
+        ) : null,
       )}
 
       {step === "grade" && draft.crop && (
@@ -387,6 +434,25 @@ export function CollectWizard({ t, lang = "mr" }: { t: Messages; lang?: "mr" | "
               </dl>
             </CardContent>
           </Card>
+          {(["grossKg", "tareKg", "moisturePct"] as const).some((f) => resolutions[f].meta) && (
+            <Card>
+              <CardContent className="pt-4">
+                <p className="mb-2 text-base font-semibold">{t6.sources.title}</p>
+                <ul className="space-y-1 text-base" data-testid="review-sources">
+                  {(["grossKg", "tareKg", "moisturePct"] as const).map((f) => {
+                    const m = resolutions[f].meta;
+                    if (!m) return null;
+                    return (
+                      <li key={f}>
+                        {t6.sources.fields[f]}: <span className="font-semibold">{t6.sources[m.source]}</span>
+                        {m.aiValue && m.source !== "ai_confirmed" ? ` (${t6.sources.aiWas} ${m.aiValue})` : ""}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
           {saveError && <Notice tone="error">{saveError}</Notice>}
         </div>
       )}
@@ -402,7 +468,14 @@ export function CollectWizard({ t, lang = "mr" }: { t: Messages; lang?: "mr" | "
           <Button
             size="lg"
             onClick={goNext}
-            disabled={(step === "farmer" && !draft.farmer) || (step === "crop" && !draft.crop) || (step === "grade" && !calc)}
+            disabled={
+              (step === "farmer" && !draft.farmer) ||
+              (step === "crop" && !draft.crop) ||
+              (step === "grade" && !calc) ||
+              (step === "gross" && resolutions.grossKg.blocked !== null) ||
+              (step === "tare" && resolutions.tareKg.blocked !== null) ||
+              (step === "moisture" && resolutions.moisturePct.blocked !== null)
+            }
             className="flex-[2]"
           >
             {c.next}

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { MANAGER_PROFILE, OPERATOR_PROFILE, USER, fakeSupabase, type FakeSupabaseOptions } from "./fake-supabase";
+import { MANAGER_PROFILE, OPERATOR_PROFILE, USER, fakeSupabase } from "./fake-supabase";
 
 const current = vi.hoisted(() => ({ client: null as unknown }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => current.client as SupabaseClient }));
@@ -264,7 +264,7 @@ describe("POST /api/ai/read-display", () => {
     asOperator();
     const vision = vi.fn(async () => ({ ok: true as const, output: scaleOut() }));
     await handleReadDisplay(upload("scale", jpeg(), { farmerId: "x", accountNumber: "123456789012", name: "Ramesh" }), vision);
-    expect(Object.keys(vision.mock.calls[0][0] as object).sort()).toEqual(["base64", "kind", "mediaType"]);
+    expect(Object.keys((vision.mock.calls as unknown as [object][])[0][0]).sort()).toEqual(["base64", "kind", "mediaType"]);
   });
   it("rejects an unknown kind and a missing image", async () => {
     asOperator();

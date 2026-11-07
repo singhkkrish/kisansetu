@@ -1,3 +1,4 @@
+import type { Readings } from "@/lib/ai/schemas";
 import { istDate } from "@/lib/calculations/format";
 import { decimalEquals } from "@/lib/calculations/procurement";
 import { isClockAhead, verifyPayloadHash } from "@/lib/offline/integrity";
@@ -36,6 +37,7 @@ export interface EntryRow {
   device_clock_offset_ms: number | null;
   rate_price_date: string | null;
   rate_version: number | null;
+  reading_meta: Readings | null;
   payload_hash: string;
   prev_hash: string | null;
   sync_status: "synced";
@@ -194,6 +196,7 @@ async function processOne(
     device_clock_offset_ms: entry.clockOffsetMs ?? null,
     rate_price_date: entry.rateDate ?? null,
     rate_version: entry.rateVersion ?? null,
+    reading_meta: entry.readings ?? null,
     payload_hash: entry.payloadHash,
     prev_hash: entry.prevHash,
     sync_status: "synced",

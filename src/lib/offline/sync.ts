@@ -203,6 +203,7 @@ function toWireEntry(e: Awaited<ReturnType<typeof getPendingEntries>>[number]) {
     clockOffsetMs: e.clockOffsetMs ?? null,
     rateDate: e.rateDate ?? null,
     rateVersion: e.rateVersion ?? null,
+    readings: e.readings ?? null,
     payloadHash: e.payloadHash,
   };
 }

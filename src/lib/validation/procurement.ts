@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CROPS, GRADES } from "@/types/domain";
+import { readingsSchema } from "@/lib/ai/schemas";
 import { CalculationError, calculateProcurement, decimalEquals } from "@/lib/calculations/procurement";
 
 /** Accepts "12.5" or 12.5 and returns a decimal string with a bounded scale. */
@@ -34,6 +35,8 @@ export const procurementInputSchema = z
     /** Which published price this rate came from: its effective date and version. */
     rateDate: z.iso.date().optional(),
     rateVersion: z.number().int().positive().optional(),
+    /** How each weight/moisture figure was obtained (typed, AI-confirmed, AI-corrected). Optional. */
+    readings: readingsSchema.optional(),
   })
   .superRefine((value, ctx) => {
     try {
@@ -79,6 +82,8 @@ export const entryRecordSchema = z
      */
     rateDate: z.iso.date().nullish(),
     rateVersion: z.number().int().positive().nullish(),
+    /** Not part of the hash. Describes where the figures came from; never an image. */
+    readings: readingsSchema.nullish(),
     payloadHash: sha256,
   })
   .superRefine((value, ctx) => {

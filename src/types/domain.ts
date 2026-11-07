@@ -18,6 +18,11 @@ export const FLAG_REASONS = [
   "clock_skew",
   "manual_hold",
   "superseded_rate",
+  "weight_vs_land",
+  "repeat_within_hour",
+  "uniform_moisture",
+  "weight_pattern_change",
+  "moisture_pattern_change",
 ] as const;
 export type FlagReason = (typeof FLAG_REASONS)[number];
 

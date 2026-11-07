@@ -139,6 +139,7 @@ export async function recordProcurement(
       clockOffsetMs: offset ? Math.round(offset.offsetMs) : null,
       rateDate: input.rateDate ?? null,
       rateVersion: input.rateVersion ?? null,
+      readings: input.readings ?? null,
     };
     const payloadHash = await computePayloadHash(unsigned);
 
