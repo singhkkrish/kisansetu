@@ -91,6 +91,10 @@ beforeAll(async () => {
     await db.exec(fs.readFileSync(path.join(SUPABASE_DIR, "migrations", file), "utf8"));
   }
   await db.exec(fs.readFileSync(path.join(SUPABASE_DIR, "seed.sql"), "utf8"));
+  // These tests reuse the same farmer and moisture value many times over. The
+  // anomaly rules would (rightly) flag that, so they are switched off here and
+  // exercised on their own in db-anomalies.test.ts.
+  await db.exec("update anomaly_settings set value = 0 where key like '%\\_enabled'");
   await db.exec(`
     grant usage on schema public to authenticated, anon;
     grant all on all tables in schema public to authenticated, anon;
