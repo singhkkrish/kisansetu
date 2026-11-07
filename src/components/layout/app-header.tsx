@@ -14,9 +14,10 @@ interface AppHeaderProps {
   pricesLabel?: string;
   paymentsLabel?: string;
   stockLabel?: string;
+  anomaliesLabel?: string;
 }
 
-export function AppHeader({ t, userName, roleLabel, role, pricesLabel = "Prices", paymentsLabel = "Payments", stockLabel = "Stock" }: AppHeaderProps) {
+export function AppHeader({ t, userName, roleLabel, role, pricesLabel = "Prices", paymentsLabel = "Payments", stockLabel = "Stock", anomaliesLabel = "Flagged entries" }: AppHeaderProps) {
   const items: NavItem[] =
     role === "centre_operator"
       ? [
@@ -31,6 +32,7 @@ export function AppHeader({ t, userName, roleLabel, role, pricesLabel = "Prices"
           { href: "/procurement", label: t.nav.entries },
           { href: "/prices", label: pricesLabel },
           { href: "/payments", label: paymentsLabel },
+          { href: "/anomalies", label: anomaliesLabel },
           { href: "/stock", label: stockLabel },
         ];
 

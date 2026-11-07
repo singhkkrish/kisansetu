@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { openAnomalyEntryIds } from "@/lib/services/anomalies";
 import { groupByFarmer, type PayableEntry, type PaymentPreview } from "@/lib/payments/grouping";
 import type { BankFileRow } from "@/lib/payments/bank-file";
 import { maskAccountNumber } from "@/lib/validation/bank";
@@ -49,7 +50,10 @@ export async function previewPayment(
     .limit(PREVIEW_LIMIT);
   if (error) return { preview: empty, truncated: false, error: true };
 
-  const rows = (data as unknown as Raw[] | null) ?? [];
+  // An open anomaly keeps payment on hold, exactly as create_payment_run does in the database.
+  const allRows = (data as unknown as Raw[] | null) ?? [];
+  const held = await openAnomalyEntryIds(supabase, allRows.map((r) => r.id as string));
+  const rows = allRows.filter((r) => !held.has(r.id as string));
   const entries: PayableEntry[] = rows.map((r) => {
     const m = one<Raw>(r.farmer_members);
     const b = one<Raw>(m?.farmer_bank_accounts);
@@ -71,7 +75,7 @@ export async function previewPayment(
         : null,
     };
   });
-  return { preview: groupByFarmer(entries), truncated: rows.length >= PREVIEW_LIMIT, error: false };
+  return { preview: groupByFarmer(entries), truncated: allRows.length >= PREVIEW_LIMIT, error: false };
 }
 
 export type RunStatus = "draft" | "approved" | "file_generated" | "completed" | "cancelled";

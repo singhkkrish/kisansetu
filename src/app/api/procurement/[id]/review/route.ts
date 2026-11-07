@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { authorizeRequest, dbErrorResponse, jsonError, readJsonBody } from "@/lib/api/http";
+import { authorizeRequest, jsonError, readJsonBody } from "@/lib/api/http";
+import { paymentErrorResponse } from "@/lib/api/payment-errors";
 
 const reviewSchema = z.strictObject({
   decision: z.enum(["approve", "hold", "reject"]),
@@ -34,7 +35,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     p_decision: decision,
     p_note: note ?? null,
   });
-  if (error) return dbErrorResponse(error);
+  if (error) return paymentErrorResponse(error);
 
   return NextResponse.json({ id, decision });
 }

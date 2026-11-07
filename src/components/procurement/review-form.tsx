@@ -33,7 +33,9 @@ export function ReviewForm({ entryId, t }: { entryId: string; t: Messages["procu
       setNote("");
       router.refresh();
     } else {
-      setMessage({ tone: "error", text: t.failed });
+      // The server explains rule-based refusals (an open anomaly, a missing note) in plain words.
+      const detail = response && (response.status === 409 || response.status === 422) ? ((await response.json().catch(() => null)) as { error?: string } | null)?.error : undefined;
+      setMessage({ tone: "error", text: detail ?? t.failed });
     }
     setBusy(null);
   }

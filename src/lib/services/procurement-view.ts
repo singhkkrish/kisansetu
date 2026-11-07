@@ -1,3 +1,4 @@
+import { readingsSchema, type Readings } from "@/lib/ai/schemas";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ApprovalStatus, Crop, FlagReason, Grade, PaymentStatus } from "@/types/domain";
 
@@ -120,6 +121,8 @@ export interface EntryDetail {
   paymentStatus: PaymentStatus;
   flagReasons: FlagReason[];
   reviewNote: string | null;
+  /** How the weights and moisture were obtained (typed, or AI-suggested and confirmed or corrected). */
+  readings: Readings | null;
   audit: AuditItem[];
 }
 
@@ -183,6 +186,10 @@ export async function getEntryDetail(supabase: SupabaseClient, idOrClientId: str
     paymentStatus: r.payment_status as PaymentStatus,
     flagReasons: ((r.flag_reasons as string[] | null) ?? []) as FlagReason[],
     reviewNote: (r.review_note as string | null) ?? null,
+    readings: (() => {
+      const parsed = readingsSchema.safeParse(r.reading_meta);
+      return parsed.success && Object.keys(parsed.data).length > 0 ? parsed.data : null;
+    })(),
     audit: ((logs as Raw[] | null) ?? []).map((l) => ({
       id: l.id as string,
       action: l.action as string,

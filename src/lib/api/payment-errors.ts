@@ -22,6 +22,10 @@ const KNOWN: Record<string, [number, string]> = {
   "ks:weight_above_book": [422, "The weighed weight cannot be more than the stock book quantity"],
   "ks:bad_details": [422, "Check the destination and truck number"],
   "ks:bad_time": [422, "The dispatch time must be within the last 48 hours and not in the future"],
+  "ks:anomaly_open": [409, "This entry has an open anomaly. Review the anomaly first, then approve."],
+  "ks:note_required_confirmed": [422, "A confirmed anomaly needs a note of at least 5 characters to approve the purchase"],
+  "ks:bad_action": [422, "Choose a valid review action"],
+  "ks:setting_out_of_range": [422, "That value is outside the allowed range"],
   "ks:insufficient_stock": [409, "There is not enough stock at this centre for that quantity"],
 };
 

@@ -11,6 +11,9 @@ import { formatDisplayDate, formatInr, formatKg } from "@/lib/calculations/forma
 import { getMessages } from "@/lib/i18n/messages";
 import { SlipCard } from "@/components/slip/slip-card";
 import { getPart4Messages } from "@/lib/i18n/part4-messages";
+import { getPart6Messages } from "@/lib/i18n/part6-messages";
+import { AnomalyCard } from "@/components/anomalies/anomaly-card";
+import { listEntryAnomalies } from "@/lib/services/anomalies";
 import { SMS_COLUMNS, toSmsRecord } from "@/lib/services/sms-repository";
 import { buildSlip } from "@/lib/slip/slip";
 import { getEntryDetail } from "@/lib/services/procurement-view";
@@ -50,6 +53,10 @@ export default async function EntryDetailPage({ params }: { params: Promise<{ id
   const sms = smsRow ? toSmsRecord(smsRow as Record<string, unknown>) : null;
 
   const manager = can(session.profile.role, "procurement:approve");
+  const t6 = getPart6Messages(session.profile.preferred_lang);
+  // Row level security hides anomaly flags from operators; only managers load them.
+  const anomalies = manager ? await listEntryAnomalies(supabase, entry.id) : [];
+  const openAnomaly = anomalies.some((a) => a.status === "open");
   const locked = entry.paymentStatus === "in_run" || entry.paymentStatus === "paid";
 
   return (
@@ -79,6 +86,17 @@ export default async function EntryDetailPage({ params }: { params: Promise<{ id
         <Notice tone="info"><span className="font-semibold">{p.reviewNote}:</span> {entry.reviewNote}</Notice>
       )}
 
+      {manager && (
+        <section className="space-y-3" aria-labelledby="anomalies-title">
+          <h2 id="anomalies-title" className="text-xl font-bold">{t6.anomalies.sectionTitle}</h2>
+          {anomalies.length === 0 ? (
+            <p className="text-muted">{t6.anomalies.noneOnEntry}</p>
+          ) : (
+            anomalies.map((a) => <AnomalyCard key={a.id} item={a} t={t6.anomalies} lang={session.profile.preferred_lang} showEntryLink={false} />)
+          )}
+        </section>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader><CardTitle>{p.figures}</CardTitle></CardHeader>
@@ -90,6 +108,23 @@ export default async function EntryDetailPage({ params }: { params: Promise<{ id
               <Item label={p.tare}>{formatKg(entry.tareKg)} kg</Item>
               <Item label={p.moisture}>{entry.moisturePct}%</Item>
               <Item label={p.net}>{formatKg(entry.netKg)} kg</Item>
+              {entry.readings && (
+                <div className="col-span-2" data-testid="reading-sources">
+                  <dt className="text-sm text-muted">{t6.sources.title}</dt>
+                  <dd className="mt-0.5 space-y-0.5 text-base">
+                    {(["grossKg", "tareKg", "moisturePct"] as const).map((f) => {
+                      const m = entry.readings?.[f];
+                      if (!m) return null;
+                      return (
+                        <span key={f} className="block">
+                          {t6.sources.fields[f]}: <span className="font-semibold">{t6.sources[m.source]}</span>
+                          {m.aiValue && m.source !== "ai_confirmed" ? ` (${t6.sources.aiWas} ${m.aiValue})` : ""}
+                        </span>
+                      );
+                    })}
+                  </dd>
+                </div>
+              )}
               <div className="col-span-2"><Item label={p.amount}><span className="text-2xl">{formatInr(entry.amount)}</span></Item></div>
             </dl>
           </CardContent>
@@ -173,9 +208,15 @@ export default async function EntryDetailPage({ params }: { params: Promise<{ id
           <ol className="space-y-4" data-testid="audit-trail">
             {entry.audit.map((a) => (
               <li key={a.id} className="border-l-2 border-line pl-4">
-                <p className="text-base font-semibold">{a.action === "created" ? p.auditCreated : p.auditChanged}</p>
+                <p className="text-base font-semibold">{a.action === "created" ? p.auditCreated : (t6.anomalies.audit[a.action] ?? p.auditChanged)}</p>
                 <p className="text-sm text-muted">{stamp(a.at)}{a.actorName ? ` · ${p.auditBy} ${a.actorName}` : ""}</p>
-                {a.action !== "created" && a.newValues && (
+                {a.action.startsWith("anomaly_") && a.newValues && (
+                  <p className="mt-1 text-sm">
+                    {t6.anomalies.rules[String(a.newValues.rule)] ?? String(a.newValues.rule ?? "")}
+                    {a.newValues.note ? ` · “${String(a.newValues.note)}”` : ""}
+                  </p>
+                )}
+                {a.action !== "created" && !a.action.startsWith("anomaly_") && a.newValues && (
                   <p className="mt-1 text-sm">
                     {String(a.oldValues?.approval_status ?? "")} → {String(a.newValues.approval_status ?? "")}
                     {a.newValues.review_note ? ` · “${String(a.newValues.review_note)}”` : ""}
@@ -188,7 +229,12 @@ export default async function EntryDetailPage({ params }: { params: Promise<{ id
       </Card>
 
       {manager ? (
-        locked ? <Notice tone="warn">{p.review.locked}</Notice> : <ReviewForm entryId={entry.id} t={p.review} />
+        locked ? <Notice tone="warn">{p.review.locked}</Notice> : (
+          <>
+            {openAnomaly && <Notice tone="warn">{t6.anomalies.approveBlocked}</Notice>}
+            <ReviewForm entryId={entry.id} t={p.review} />
+          </>
+        )
       ) : (
         <Notice tone="info">{p.review.operatorReadOnly}</Notice>
       )}
