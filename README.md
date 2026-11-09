@@ -55,7 +55,7 @@ No secrets belong in the repository. `.env.local` is git-ignored.
 
 ### Database
 
-Migrations live in `supabase/migrations`, applied in filename order (there are nine):
+Migrations live in `supabase/migrations`, applied in filename order (there are ten):
 
 ```bash
 supabase link --project-ref <your-project-ref>
