@@ -24,6 +24,22 @@ export default async function DashboardLayout({ children }: { children: React.Re
     </div>
   );
 
+  // An operator account with no centre cannot record or read anything. Say so instead of
+  // letting every page fail on missing offline context.
+  if (session.profile.role === "centre_operator" && !session.centre) {
+    const mr = session.profile.preferred_lang === "mr";
+    return (
+      <div className="min-h-dvh" lang={session.profile.preferred_lang}>
+        <main className="mx-auto max-w-xl px-4 py-16 sm:px-6">
+          <h1 className="text-2xl font-bold">{mr ? "तुमचे खाते केंद्राशी जोडलेले नाही" : "Your account is not linked to a centre"}</h1>
+          <p className="mt-2 text-muted">
+            {mr ? "कार्यालय व्यवस्थापकाला तुमचे खाते एका केंद्राशी जोडायला सांगा, मग पुन्हा लॉगिन करा." : "Ask the office manager to assign your account to a centre, then sign in again."}
+          </p>
+        </main>
+      </div>
+    );
+  }
+
   // Only centre operators record purchases, so only they need the offline machinery.
   if (session.profile.role === "centre_operator" && session.centre) {
     return (

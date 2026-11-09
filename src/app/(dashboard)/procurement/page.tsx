@@ -126,7 +126,7 @@ export default async function ProcurementPage({
               <tbody className="divide-y divide-line">
                 {items.map((e) => (
                   <tr key={e.id}>
-                    <td className="px-4 py-3 font-semibold">
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold">
                       <Link href={`/procurement/${e.id}`} className="text-primary underline">{e.slipNo}</Link>
                     </td>
                     <td className="px-4 py-3">{e.farmerName}<span className="block text-xs text-muted">{e.farmerCode}</span></td>

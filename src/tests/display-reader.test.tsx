@@ -44,7 +44,7 @@ describe("DisplayReader", () => {
     expect((await screen.findByTestId("gross-ai-value")).textContent).toContain("860.0");
     expect(screen.getByAltText(t.photoAlt)).toBeTruthy();
     expect(field()).toBeNull(); // nothing to type into, nothing prefilled, until the operator decides
-    expect(last.blocked).toBe("decide");
+    await waitFor(() => expect(last.blocked).toBe("decide"));
   });
 
   it("fills the field only after the operator confirms", async () => {
@@ -81,7 +81,7 @@ describe("DisplayReader", () => {
     await upload({ ...ok, value: "861.0" });
     await waitFor(() => expect(screen.getByTestId("gross-ai-value").textContent).toContain("861.0"));
     expect(field()).toBeNull();
-    expect(last.blocked).toBe("decide");
+    await waitFor(() => expect(last.blocked).toBe("decide"));
   });
 
   it("when the AI is uncertain, says so, prefills nothing and asks for manual entry", async () => {

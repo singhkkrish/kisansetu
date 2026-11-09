@@ -47,7 +47,7 @@ export default async function AnomaliesPage({ searchParams }: { searchParams: Pr
             {(centres ?? []).map((c) => <option key={c.id as string} value={c.id as string}>{c.code as string} · {c.name as string}</option>)}
           </Select>
         </div>
-        <Button type="submit" variant="secondary">OK</Button>
+        <Button type="submit" variant="secondary">{t.apply}</Button>
       </form>
 
       <nav aria-label={t.status} className="flex flex-wrap gap-2">
@@ -70,7 +70,7 @@ export default async function AnomaliesPage({ searchParams }: { searchParams: Pr
       ) : (
         <div className="space-y-4" data-testid="anomaly-list">
           {items.map((item) => <AnomalyCard key={item.id} item={item} t={t} lang={lang} />)}
-          {items.length === ANOMALY_LIST_LIMIT && <p className="text-sm text-muted">Showing {ANOMALY_LIST_LIMIT}</p>}
+          {items.length === ANOMALY_LIST_LIMIT && <p className="text-sm text-muted">{t.showing} {ANOMALY_LIST_LIMIT}</p>}
         </div>
       )}
     </div>

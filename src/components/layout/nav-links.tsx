@@ -21,7 +21,7 @@ export function NavLinks({ items }: { items: NavItem[] }) {
             href={item.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "inline-flex h-11 items-center rounded-lg px-4 text-base font-semibold",
+              "inline-flex h-11 shrink-0 items-center whitespace-nowrap rounded-lg px-4 text-base font-semibold",
               active ? "bg-primary-soft text-primary" : "text-muted hover:bg-primary-soft hover:text-ink",
             )}
           >

@@ -148,6 +148,13 @@ describe("procurement to payment, end to end", () => {
   });
 
   it("3. the office manager publishes today's prices", async () => {
+    // The seed already carries a published rate for the database's current date, which can be the same
+    // day as the IST date used here. Start from "nothing published yet today" so this step always
+    // exercises the real draft-then-publish path.
+    await pg.exec("alter table daily_prices disable trigger user; alter table price_versions disable trigger user");
+    await q("delete from daily_prices where price_date = $1", [today]);
+    await q("delete from price_versions where price_date = $1", [today]);
+    await pg.exec("alter table daily_prices enable trigger user; alter table price_versions enable trigger user");
     await asUser(MANAGER, () => q("select save_price_drafts($1::date, $2::jsonb, null)", [today, JSON.stringify([{ crop: "soybean", grade: "A", rate: 4850 }])]));
     const drafts = await asUser(MANAGER, () => q<{ id: string }>("select id from price_versions where price_date = $1 and status = 'draft'", [today]));
     await asUser(MANAGER, () => q("select publish_prices($1::uuid[])", [drafts.map((d) => d.id)]));
