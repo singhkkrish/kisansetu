@@ -1,6 +1,6 @@
 # KisanSetu testing guide
 
-All figures below are from a real run on 7 November 2026 in the development sandbox
+All figures below are from a real run on 9 November 2026 in the development sandbox
 (Node 22, Vitest, in-memory PostgreSQL via PGlite, headless Chromium). Nothing here was run against
 a live Supabase project or a deployed site, because neither exists yet; see "What was not tested".
 
@@ -10,14 +10,10 @@ a live Supabase project or a deployed site, because neither exists yet; see "Wha
 | --- | --- |
 | `npm run typecheck` (`tsc --noEmit`) | exit 0, no errors |
 | `npm run lint` (`eslint`) | exit 0, no warnings |
-| `npm test` (`vitest run`) | **31 files, 761 tests, 761 passed, 0 failed, 0 skipped** |
-| `npm run build` (`next build`) | compiled successfully, 28 pages/routes generated |
+| `npm test` (`vitest run`) | **32 files, 762 tests, 762 passed, 0 failed, 0 skipped** (three consecutive full runs, all green) |
+| `npm run build` (`next build`) | compiled successfully, 28 pages/routes generated (`next build`) |
 
-Per file (tests): ai-reading 50, authorization 31, calculations 23, db-anomalies 33, db-payments 23, db-rls 76,
-db-security 5, db-seed 4, display-reader 14, e2e-workflow 15, farmer-validation 55, integrity 15, member-filters 9,
-offline-engine 33, offline-queue 14, part4-engine 19, part6 36, payments-lib 23, payments-routes 46, permissions 38,
-price-board 26, route-coverage 64, slip-message 3, slip-render 2, slip 14, sms 32, source-security 5, stock 13,
-sync-service 16, validation 10, wizard 14.
+Per file (tests): ai-reading 50, authorization 31, calculations 23, db-anomalies 33, db-payments 23, db-rls 76, db-security 5, db-security-audit 5, db-seed 4, display-reader 14, e2e-workflow 11, farmer-validation 55, integrity 15, member-filters 9, offline-engine 33, offline-queue 14, part4-engine 19, part6 36, payments-lib 23, payments-routes 46, permissions 38, price-board 26, route-coverage 64, slip 14, slip-message 3, slip-render 2, sms 32, source-security 5, stock 13, sync-service 16, validation 10, wizard 14.
 
 ## 2. Unit tests (no database, no network)
 

@@ -215,7 +215,7 @@ export function DisplayReader({ kind, id, label, unit, value, onChange, onEnter,
             {!busy && (
               <button type="button" onClick={discard} className="block text-sm text-muted underline">
                 <X className="mr-1 inline h-3.5 w-3.5" aria-hidden="true" />
-                {t.reject}
+                {t.removePhoto}
               </button>
             )}
           </div>
