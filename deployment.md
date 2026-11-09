@@ -44,7 +44,7 @@ cp .env.example .env.local     # then fill in the values, see section 6
 
 ## 5. Database migrations
 
-The nine files in `supabase/migrations` must be applied in filename order. Either:
+The ten files in `supabase/migrations` must be applied in filename order. Either:
 
 ```bash
 supabase link --project-ref <your-project-ref>
@@ -52,7 +52,7 @@ supabase db push
 ```
 
 or paste each file, in order, into the Supabase SQL editor
-(`20261102000001_…` through `20261107000009_…`).
+(`20261102000001_…` through `20261109000010_…`).
 
 Seed data (all fictional — centres, 37 sample farmers with synthetic phone numbers, today's prices):
 
